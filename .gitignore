@@ -1,0 +1,90 @@
+# Python-specific ignores
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+env/
+.env
+*.venv
+
+# Environment variables and sensitive data
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+secrets/
+*.pem
+*.key
+*.crt
+*.env
+
+# FastAPI-specific ignores
+*.log
+logs/
+*.pid
+*.seed
+
+# Dependency management
+Pipfile.lock
+poetry.lock
+
+# Testing and coverage
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+.htmlcov/
+.tox/
+.nox/
+coverage/
+*.pytest_cache/
+*.cache
+
+# IDE and editor files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Database-related ignores
+*.sqlite3
+*.db
+*.sql
+
+# Docker and deployment
+Dockerfile.local
+docker-compose.local.yml
+*.dockerignore
+
+# Temporary files
+*.bak
+*.swp
+*~
+*.tmp
+
+# Build and runtime artifacts
+instance/
+webapps/
+*.sock
+*.pid
+
+# Documentation build artifacts
+docs/_build/
+docs/build/
+
+# Miscellaneous
+*.prof
+*.dump
+*.rdb

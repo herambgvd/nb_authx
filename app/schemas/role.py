@@ -4,186 +4,200 @@ This module provides Pydantic models for role-based access control (RBAC).
 """
 from typing import Optional, List, Dict, Any
 from uuid import UUID
+from datetime import datetime
 
 from pydantic import BaseModel, Field, validator
 
 from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema, TenantBaseSchema
 
-# Permission Schemas
-class PermissionBase(BaseSchema):
-    """Base schema for permission data."""
-    name: str
-    description: Optional[str] = None
-    resource: str
-    action: str
-    is_system_permission: bool = False
-
-class PermissionCreate(PermissionBase):
-    """Schema for creating a new permission."""
-    pass
-
-class PermissionUpdate(BaseSchema):
-    """Schema for updating an existing permission."""
-    name: Optional[str] = None
-    description: Optional[str] = None
-    resource: Optional[str] = None
-    action: Optional[str] = None
-    is_system_permission: Optional[bool] = None
-
-class PermissionResponse(UUIDSchema, PermissionBase, TimestampSchema):
-    """Schema for permission response data."""
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "name": "read:users",
-                "description": "Ability to view user data",
-                "resource": "users",
-                "action": "read",
-                "is_system_permission": False,
-                "created_at": "2023-01-01T00:00:00Z",
-                "updated_at": "2023-01-01T00:00:00Z"
-            }
-        }
-
 # Role Schemas
 class RoleBase(BaseSchema):
     """Base schema for role data."""
-    name: str
-    description: Optional[str] = None
-    is_system_role: bool = False
-    is_location_specific: bool = False
-    location_id: Optional[UUID] = None
-    parent_id: Optional[UUID] = None
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    slug: str = Field(..., min_length=3, max_length=100)
+    is_default: bool = False
+    is_system: bool = False
+    is_active: bool = True
+    priority: int = Field(default=0, ge=0, le=100)
 
-class RoleCreate(RoleBase, TenantBaseSchema):
+    @validator('slug')
+    def validate_slug(cls, v):
+        """Validate role slug format."""
+        import re
+        if not re.match(r'^[a-z0-9-_]+$', v):
+            raise ValueError('Slug must contain only lowercase letters, numbers, hyphens, and underscores')
+        return v
+
+class RoleCreate(RoleBase):
     """Schema for creating a new role."""
-    permission_ids: Optional[List[UUID]] = None
+    permissions: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    organization_id: UUID
 
 class RoleUpdate(BaseSchema):
     """Schema for updating an existing role."""
-    name: Optional[str] = None
-    description: Optional[str] = None
-    is_system_role: Optional[bool] = None
-    is_location_specific: Optional[bool] = None
-    location_id: Optional[UUID] = None
-    parent_id: Optional[UUID] = None
-    permission_ids: Optional[List[UUID]] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+    priority: Optional[int] = Field(None, ge=0, le=100)
+    permissions: Optional[Dict[str, Any]] = None
 
 class RoleResponse(UUIDSchema, RoleBase, TimestampSchema):
     """Schema for role response data."""
     organization_id: UUID
-    permissions: List[PermissionResponse] = []
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "name": "Admin",
-                "description": "Administrator role with full access",
-                "is_system_role": True,
-                "is_location_specific": False,
-                "location_id": None,
-                "parent_id": None,
-                "organization_id": "550e8400-e29b-41d4-a716-446655440001",
-                "permissions": [
-                    {
-                        "id": "550e8400-e29b-41d4-a716-446655440002",
-                        "name": "read:users",
-                        "description": "Ability to view user data",
-                        "resource": "users",
-                        "action": "read",
-                        "is_system_permission": False,
-                        "created_at": "2023-01-01T00:00:00Z",
-                        "updated_at": "2023-01-01T00:00:00Z"
-                    }
-                ],
-                "created_at": "2023-01-01T00:00:00Z",
-                "updated_at": "2023-01-01T00:00:00Z"
-            }
-        }
+    permissions: Dict[str, Any]
+    user_count: int = 0
 
 class RoleListResponse(BaseSchema):
-    """Schema for paginated role response data."""
-    items: List[RoleResponse]
+    """Schema for paginated role list response."""
+    roles: List[RoleResponse]
     total: int
     page: int
-    size: int
+    page_size: int
+    has_next: bool
+    has_prev: bool
+
+# Permission Schemas
+class PermissionBase(BaseSchema):
+    """Base schema for permission data."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    resource: str = Field(..., min_length=1, max_length=50)
+    action: str = Field(..., min_length=1, max_length=50)
+    is_system: bool = False
+    is_active: bool = True
+
+class PermissionCreate(PermissionBase):
+    """Schema for creating a new permission."""
+    metadata_config: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+class PermissionUpdate(BaseSchema):
+    """Schema for updating an existing permission."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    is_active: Optional[bool] = None
+    metadata_config: Optional[Dict[str, Any]] = None
+
+class PermissionResponse(UUIDSchema, PermissionBase, TimestampSchema):
+    """Schema for permission response data."""
+    metadata_config: Dict[str, Any]
 
 class PermissionListResponse(BaseSchema):
-    """Schema for paginated permission response data."""
-    items: List[PermissionResponse]
+    """Schema for paginated permission list response."""
+    permissions: List[PermissionResponse]
     total: int
     page: int
-    size: int
+    page_size: int
+    has_next: bool
+    has_prev: bool
 
-# Role Template Schemas
-class RoleTemplateBase(BaseSchema):
-    """Base schema for role template data."""
-    name: str
-    description: Optional[str] = None
-    is_location_specific: bool = False
-    permissions: List[Dict[str, str]] = []  # List of permission identifiers (resource:action)
-
-class RoleTemplateCreate(RoleTemplateBase):
-    """Schema for creating a new role template."""
-    pass
-
-class RoleTemplateResponse(UUIDSchema, RoleTemplateBase, TimestampSchema):
-    """Schema for role template response data."""
-    pass
-
-class RoleTemplateListResponse(BaseSchema):
-    """Schema for paginated role template response data."""
-    items: List[RoleTemplateResponse]
-    total: int
-    page: int
-    size: int
-
-# Permission Inheritance and Assignment Schemas
+# Role-Permission Assignment Schemas
 class PermissionAssignment(BaseSchema):
     """Schema for assigning permissions to a role."""
-    permission_ids: List[UUID]
+    permission_ids: List[UUID] = Field(..., min_items=1)
 
-class RoleHierarchyItem(BaseSchema):
-    """Schema for representing a role in a hierarchy."""
-    id: UUID
-    name: str
-    children: List[Any] = []
-
-# Permission Evaluation and Approval Schemas
 class PermissionCheckRequest(BaseSchema):
-    """Schema for checking if a user has a specific permission."""
-    resource: str
-    action: str
-    resource_id: Optional[UUID] = None
-    location_id: Optional[UUID] = None
+    """Schema for checking user permissions."""
+    user_id: Optional[UUID] = None
+    resource: str = Field(..., min_length=1)
+    action: str = Field(..., min_length=1)
+    context: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class PermissionCheckResponse(BaseSchema):
     """Schema for permission check response."""
-    has_permission: bool
-    reason: Optional[str] = None
-
-class ApprovalWorkflowRequest(BaseSchema):
-    """Schema for requesting approval for a sensitive operation."""
+    user_id: UUID
     resource: str
     action: str
-    resource_id: Optional[UUID] = None
-    reason: str
-    metadata: Optional[Dict[str, Any]] = None
+    has_permission: bool
+    granted_through: List[str] = Field(default_factory=list)
+
+# Role Hierarchy Schemas
+class RoleHierarchyItem(BaseSchema):
+    """Schema for role hierarchy items."""
+    role_id: UUID
+    role_name: str
+    parent_id: Optional[UUID] = None
+    children: List['RoleHierarchyItem'] = Field(default_factory=list)
+
+# Workflow Schemas
+class ApprovalWorkflowRequest(BaseSchema):
+    """Schema for approval workflow requests."""
+    action: str
+    resource_type: str
+    resource_id: UUID
+    justification: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class ApprovalWorkflowResponse(UUIDSchema, TimestampSchema):
     """Schema for approval workflow response."""
-    status: str  # pending, approved, rejected
+    action: str
+    resource_type: str
+    resource_id: UUID
+    status: str
     requested_by: UUID
     approved_by: Optional[UUID] = None
-    rejected_by: Optional[UUID] = None
-    reason: str
-    approval_date: Optional[str] = None
-    rejection_date: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    justification: Optional[str] = None
+    approval_notes: Optional[str] = None
+    metadata: Dict[str, Any]
 
 class ApprovalDecisionRequest(BaseSchema):
-    """Schema for approving or rejecting a request."""
-    decision: str  # approve, reject
-    reason: str
+    """Schema for approval decision requests."""
+    decision: str = Field(..., pattern="^(approve|reject)$")
+    notes: Optional[str] = Field(None, max_length=1000)
+
+# Role Assignment Schemas
+class RoleAssignment(BaseSchema):
+    """Schema for assigning roles to users."""
+    user_id: UUID
+    role_id: UUID
+    organization_id: Optional[UUID] = None
+
+class RoleAssignmentResponse(UUIDSchema, TimestampSchema):
+    """Schema for role assignment response."""
+    user_id: UUID
+    role_id: UUID
+    organization_id: UUID
+    role_name: str
+    user_name: str
+
+class RolePermissionUpdate(BaseSchema):
+    """Schema for updating role permissions."""
+    add_permissions: Optional[List[UUID]] = Field(default_factory=list)
+    remove_permissions: Optional[List[UUID]] = Field(default_factory=list)
+    replace_permissions: Optional[List[UUID]] = None
+
+# Permission Template Schemas
+class PermissionTemplate(BaseSchema):
+    """Schema for permission templates."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    permissions: Dict[str, Any] = Field(default_factory=dict)
+    is_system: bool = False
+    is_active: bool = True
+
+class PermissionTemplateResponse(UUIDSchema, TimestampSchema):
+    """Schema for permission template response."""
+    name: str
+    description: Optional[str]
+    permissions: Dict[str, Any]
+    is_system: bool
+    is_active: bool
+
+# Role Statistics Schemas
+class RoleStats(BaseSchema):
+    """Schema for role statistics."""
+    total_roles: int = 0
+    active_roles: int = 0
+    inactive_roles: int = 0
+    system_roles: int = 0
+    custom_roles: int = 0
+
+class RoleStatsResponse(BaseSchema):
+    """Schema for role statistics response."""
+    stats: RoleStats
+    top_roles: List[Dict[str, Any]] = Field(default_factory=list)
+    recent_changes: List[Dict[str, Any]] = Field(default_factory=list)
+
+# Update forward references
+RoleHierarchyItem.model_rebuild()

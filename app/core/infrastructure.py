@@ -3,73 +3,40 @@ Infrastructure services for the AuthX service.
 This module provides implementations for caching, rate limiting, and health checks.
 """
 import time
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable, List, Union
+from typing import Dict, Any, Optional
 from functools import wraps
 import json
 import hashlib
-import redis
-from fastapi import Request, Response, HTTPException, status, Depends
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+import logging
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 # Initialize Redis client for caching and rate limiting
 try:
+    import redis
     redis_client = redis.Redis(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
         db=settings.REDIS_DB,
         password=settings.REDIS_PASSWORD,
-        decode_responses=True
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+        retry_on_timeout=True
     )
     redis_client.ping()  # Test connection
     REDIS_AVAILABLE = True
-except (redis.exceptions.ConnectionError, redis.exceptions.AuthenticationError):
+    logger.info("✅ Redis connection established")
+except Exception as e:
     REDIS_AVAILABLE = False
     redis_client = None
+    logger.warning(f"⚠️ Redis connection failed: {e}")
 
-# Prometheus metrics
-HTTP_REQUESTS = Counter(
-    'authx_http_requests_total',
-    'Total number of HTTP requests',
-    ['method', 'endpoint', 'status']
-)
-
-REQUEST_LATENCY = Histogram(
-    'authx_request_latency_seconds',
-    'Request latency in seconds',
-    ['method', 'endpoint']
-)
-
-ACTIVE_USERS = Gauge(
-    'authx_active_users',
-    'Number of active users in the system'
-)
-
-FAILED_LOGINS = Counter(
-    'authx_failed_logins_total',
-    'Total number of failed login attempts'
-)
-
-RATE_LIMITED_REQUESTS = Counter(
-    'authx_rate_limited_requests_total',
-    'Total number of rate limited requests'
-)
-
-# Caching functions
-def get_cache(key: str) -> Optional[Any]:
-    """
-    Get a value from the cache.
-
-    Args:
-        key: The cache key
-
-    Returns:
-        The cached value, or None if not found
-    """
+# Cache functions
+async def get_from_cache(key: str) -> Optional[Any]:
+    """Get value from cache."""
     if not REDIS_AVAILABLE:
         return None
 
@@ -78,245 +45,281 @@ def get_cache(key: str) -> Optional[Any]:
         if value:
             return json.loads(value)
         return None
-    except Exception:
+    except Exception as e:
+        logger.error(f"Cache get error for key {key}: {e}")
         return None
 
-def set_cache(key: str, value: Any, expiration: int = 3600) -> bool:
-    """
-    Set a value in the cache.
-
-    Args:
-        key: The cache key
-        value: The value to cache
-        expiration: Expiration time in seconds
-
-    Returns:
-        True if successful, False otherwise
-    """
+async def set_cache(key: str, value: Any, expire: int = 3600) -> bool:
+    """Set value in cache with expiration."""
     if not REDIS_AVAILABLE:
         return False
 
     try:
-        redis_client.setex(key, expiration, json.dumps(value))
+        serialized_value = json.dumps(value, default=str)
+        redis_client.setex(key, expire, serialized_value)
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"Cache set error for key {key}: {e}")
         return False
 
-def delete_cache(key: str) -> bool:
-    """
-    Delete a value from the cache.
-
-    Args:
-        key: The cache key
-
-    Returns:
-        True if successful, False otherwise
-    """
+async def delete_from_cache(key: str) -> bool:
+    """Delete value from cache."""
     if not REDIS_AVAILABLE:
         return False
 
     try:
         redis_client.delete(key)
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"Cache delete error for key {key}: {e}")
         return False
 
-def cache_response(expiration: int = 3600):
-    """
-    Decorator to cache API responses.
+async def clear_cache_pattern(pattern: str) -> bool:
+    """Clear cache keys matching pattern."""
+    if not REDIS_AVAILABLE:
+        return False
 
-    Args:
-        expiration: Expiration time in seconds
-    """
+    try:
+        keys = redis_client.keys(pattern)
+        if keys:
+            redis_client.delete(*keys)
+        return True
+    except Exception as e:
+        logger.error(f"Cache clear error for pattern {pattern}: {e}")
+        return False
+
+def cache_key_generator(*args, **kwargs) -> str:
+    """Generate cache key from arguments."""
+    key_data = str(args) + str(sorted(kwargs.items()))
+    return hashlib.md5(key_data.encode()).hexdigest()
+
+# Rate limiting functions
+async def check_rate_limit(identifier: str, limit: int, window: int) -> dict:
+    """Check if request is within rate limit."""
+    if not REDIS_AVAILABLE:
+        return {"allowed": True, "remaining": limit, "reset_time": time.time() + window}
+
+    try:
+        current_time = time.time()
+        window_start = current_time - window
+        key = f"rate_limit:{identifier}"
+
+        # Use Redis pipeline for atomic operations
+        pipe = redis_client.pipeline()
+        pipe.zremrangebyscore(key, 0, window_start)
+        pipe.zadd(key, {str(current_time): current_time})
+        pipe.zcard(key)
+        pipe.expire(key, window)
+        results = pipe.execute()
+
+        current_requests = results[2]
+        remaining = max(0, limit - current_requests)
+        reset_time = current_time + window
+
+        return {
+            "allowed": current_requests <= limit,
+            "remaining": remaining,
+            "reset_time": reset_time,
+            "current_requests": current_requests
+        }
+    except Exception as e:
+        logger.error(f"Rate limit check error for {identifier}: {e}")
+        return {"allowed": True, "remaining": limit, "reset_time": time.time() + window}
+
+# Health check functions
+async def check_redis_health() -> Dict[str, Any]:
+    """Check Redis health status."""
+    if not REDIS_AVAILABLE:
+        return {
+            "status": "unhealthy",
+            "message": "Redis not available",
+            "response_time_ms": None
+        }
+
+    try:
+        start_time = time.time()
+        redis_client.ping()
+        response_time = (time.time() - start_time) * 1000
+
+        # Get Redis info
+        info = redis_client.info()
+
+        return {
+            "status": "healthy",
+            "response_time_ms": round(response_time, 2),
+            "version": info.get("redis_version"),
+            "connected_clients": info.get("connected_clients"),
+            "used_memory": info.get("used_memory_human"),
+            "total_connections_received": info.get("total_connections_received")
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "message": str(e),
+            "response_time_ms": None
+        }
+
+async def get_system_metrics() -> Dict[str, Any]:
+    """Get system metrics."""
+    import psutil
+
+    try:
+        # CPU and memory metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory.percent,
+            "memory_available_gb": round(memory.available / (1024**3), 2),
+            "disk_percent": disk.percent,
+            "disk_free_gb": round(disk.free / (1024**3), 2)
+        }
+    except Exception as e:
+        logger.error(f"Error getting system metrics: {e}")
+        return {}
+
+async def get_metrics() -> Dict[str, Any]:
+    """Get comprehensive application metrics."""
+    from app.db.session import get_database_health
+
+    try:
+        # Database health
+        db_health = await get_database_health()
+
+        # Redis health
+        redis_health = await check_redis_health()
+
+        # System metrics
+        system_metrics = await get_system_metrics()
+
+        return {
+            "database": db_health,
+            "redis": redis_health,
+            "system": system_metrics,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}")
+        return {"error": str(e), "timestamp": time.time()}
+
+# Session management
+async def create_session(user_id: str, session_data: dict, expire_minutes: int = None) -> str:
+    """Create a user session."""
+    if not REDIS_AVAILABLE:
+        return None
+
+    try:
+        import uuid
+        session_id = str(uuid.uuid4())
+        expire_seconds = (expire_minutes or settings.SESSION_EXPIRE_MINUTES) * 60
+
+        session_key = f"session:{session_id}"
+        await set_cache(session_key, {
+            "user_id": user_id,
+            "created_at": time.time(),
+            **session_data
+        }, expire_seconds)
+
+        return session_id
+    except Exception as e:
+        logger.error(f"Error creating session for user {user_id}: {e}")
+        return None
+
+async def get_session(session_id: str) -> Optional[dict]:
+    """Get session data."""
+    if not REDIS_AVAILABLE:
+        return None
+
+    try:
+        session_key = f"session:{session_id}"
+        return await get_from_cache(session_key)
+    except Exception as e:
+        logger.error(f"Error getting session {session_id}: {e}")
+        return None
+
+async def delete_session(session_id: str) -> bool:
+    """Delete a session."""
+    if not REDIS_AVAILABLE:
+        return False
+
+    try:
+        session_key = f"session:{session_id}"
+        return await delete_from_cache(session_key)
+    except Exception as e:
+        logger.error(f"Error deleting session {session_id}: {e}")
+        return False
+
+async def refresh_session(session_id: str, expire_minutes: int = None) -> bool:
+    """Refresh session expiration."""
+    if not REDIS_AVAILABLE:
+        return False
+
+    try:
+        session_key = f"session:{session_id}"
+        expire_seconds = (expire_minutes or settings.SESSION_EXPIRE_MINUTES) * 60
+        redis_client.expire(session_key, expire_seconds)
+        return True
+    except Exception as e:
+        logger.error(f"Error refreshing session {session_id}: {e}")
+        return False
+
+# Connection management
+async def close_redis_connection():
+    """Close Redis connection."""
+    global redis_client
+    if redis_client:
+        try:
+            redis_client.close()
+            logger.info("✅ Redis connection closed")
+        except Exception as e:
+            logger.error(f"❌ Error closing Redis connection: {e}")
+
+# Database health check
+async def check_database_health() -> Dict[str, Any]:
+    """Check database health status."""
+    from app.db.session import get_database_health
+    return await get_database_health()
+
+# Decorators
+def cache_response(expire: int = 3600, key_prefix: str = ""):
+    """Decorator to cache function responses."""
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Skip caching if Redis is not available
-            if not REDIS_AVAILABLE:
-                return await func(*args, **kwargs)
-
-            # Generate a cache key based on function name and arguments
-            key_parts = [func.__name__]
-            # Add args and kwargs to key
-            for arg in args:
-                if hasattr(arg, '__dict__'):
-                    # For request objects, use path and query params
-                    if isinstance(arg, Request):
-                        key_parts.append(f"{arg.url.path}?{arg.url.query}")
-                    else:
-                        # For other objects, use their string representation
-                        key_parts.append(str(arg))
-                else:
-                    key_parts.append(str(arg))
-
-            for k, v in sorted(kwargs.items()):
-                key_parts.append(f"{k}={v}")
-
-            # Create a deterministic key with hash
-            cache_key = f"cache:{hashlib.md5(':'.join(key_parts).encode()).hexdigest()}"
+            # Generate cache key
+            cache_key = f"{key_prefix}:{func.__name__}:{cache_key_generator(*args, **kwargs)}"
 
             # Try to get from cache
-            cached_result = get_cache(cache_key)
+            cached_result = await get_from_cache(cache_key)
             if cached_result is not None:
-                # Return cached result
                 return cached_result
 
-            # Execute the function
+            # Call function and cache result
             result = await func(*args, **kwargs)
-
-            # Cache the result
-            set_cache(cache_key, result, expiration)
-
+            await set_cache(cache_key, result, expire)
             return result
         return wrapper
     return decorator
 
-# Rate limiting
-def get_client_ip(request: Request) -> str:
-    """
-    Get the client IP address from a request.
-    """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host
-
-def rate_limit_exceeded(key: str, limit: int, window: int) -> bool:
-    """
-    Check if rate limit has been exceeded.
-
-    Args:
-        key: The rate limit key
-        limit: Maximum number of requests
-        window: Time window in seconds
-
-    Returns:
-        True if rate limit exceeded, False otherwise
-    """
-    if not REDIS_AVAILABLE:
-        return False
-
-    try:
-        # Get current count
-        current = redis_client.get(key)
-        if current is None:
-            # First request, set to 1 with expiration
-            redis_client.setex(key, window, 1)
-            return False
-
-        # Increment count
-        count = int(current)
-        if count >= limit:
-            return True
-
-        # Increment counter
-        redis_client.incr(key)
-        return False
-    except Exception:
-        # On error, allow the request
-        return False
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware for API rate limiting.
-    """
-    async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for certain paths
-        path = request.url.path
-        exempt_paths = ["/health", "/metrics"]
-        if any(path.startswith(exempt) for exempt in exempt_paths):
-            return await call_next(request)
-
-        # Get client IP
-        client_ip = get_client_ip(request)
-
-        # Define rate limits
-        if path.startswith("/auth"):
-            # Stricter limits for authentication endpoints
-            key = f"rate:auth:{client_ip}"
-            limit = 10  # 10 requests
-            window = 60  # per minute
-        else:
-            # General API limits
-            key = f"rate:api:{client_ip}"
-            limit = 60  # 60 requests
-            window = 60  # per minute
-
-        # Check rate limit
-        if rate_limit_exceeded(key, limit, window):
-            # Update metrics
-            RATE_LIMITED_REQUESTS.inc()
-
-            # Return rate limit exceeded response
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={
-                    "detail": "Rate limit exceeded. Please try again later."
-                }
-            )
-
-        # Process the request
-        return await call_next(request)
-
-class MetricsMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware for collecting Prometheus metrics.
-    """
-    async def dispatch(self, request: Request, call_next):
-        # Start timer
-        start_time = time.time()
-
-        # Process request
-        response = await call_next(request)
-
-        # Record metrics
-        method = request.method
-        endpoint = request.url.path
-        status_code = response.status_code
-
-        # Update request counter
-        HTTP_REQUESTS.labels(method=method, endpoint=endpoint, status=status_code).inc()
-
-        # Update latency histogram
-        latency = time.time() - start_time
-        REQUEST_LATENCY.labels(method=method, endpoint=endpoint).observe(latency)
-
-        return response
-
-# Health check functions
-async def check_database_health(db) -> Dict[str, Any]:
-    """
-    Check database health.
-    """
-    try:
-        # Execute a simple query
-        result = db.execute("SELECT 1").scalar()
-        if result == 1:
-            return {"status": "healthy", "details": {"connected": True}}
-        return {"status": "unhealthy", "details": {"connected": False}}
-    except Exception as e:
-        return {"status": "unhealthy", "details": {"error": str(e)}}
-
-async def check_redis_health() -> Dict[str, Any]:
-    """
-    Check Redis health.
-    """
-    if not REDIS_AVAILABLE:
-        return {"status": "unhealthy", "details": {"connected": False}}
-
-    try:
-        # Ping Redis
-        redis_client.ping()
-        return {"status": "healthy", "details": {"connected": True}}
-    except Exception as e:
-        return {"status": "unhealthy", "details": {"error": str(e)}}
-
-# Metrics endpoint function
-def get_metrics():
-    """
-    Get Prometheus metrics.
-    """
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+# Export functions
+__all__ = [
+    "get_from_cache",
+    "set_cache",
+    "delete_from_cache",
+    "clear_cache_pattern",
+    "cache_key_generator",
+    "check_rate_limit",
+    "check_redis_health",
+    "check_database_health",
+    "get_system_metrics",
+    "get_metrics",
+    "create_session",
+    "get_session",
+    "delete_session",
+    "refresh_session",
+    "close_redis_connection",
+    "cache_response",
+    "REDIS_AVAILABLE"
+]

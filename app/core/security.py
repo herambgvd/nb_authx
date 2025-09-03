@@ -3,18 +3,21 @@ Advanced security services for the AuthX service.
 This module provides implementations for brute force protection, anomaly detection,
 risk scoring, fraud detection, and bot detection.
 """
-from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime, timedelta
-import math
+import time
 import ipaddress
 import re
+from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime, timedelta
 from fastapi import Request
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 
 from app.core.infrastructure import redis_client, REDIS_AVAILABLE
 from app.models.user import User
-from app.models.audit import AuditLog, SecurityEvent
-from app.core.config import settings
+from app.models.audit import AuditLog
+
+# Import password utilities from app.utils.security
+from app.utils.security import get_password_hash, verify_password
 
 # Brute Force Protection
 def check_brute_force(

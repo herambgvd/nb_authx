@@ -2,14 +2,14 @@
 Location API endpoints for the AuthX service.
 This module provides API endpoints for location management functionality.
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from uuid import UUID
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, func
 
-from app.api.deps import get_current_user, get_db, get_organization_admin, get_current_superadmin
+from app.api.deps import get_current_user, get_async_db, get_organization_admin
 from app.models.user import User
 from app.models.location import Location
 from app.models.location_group import LocationGroup
@@ -50,7 +50,7 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 @router.post("", response_model=LocationResponse, status_code=status.HTTP_201_CREATED)
 async def create_location(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     location_data: LocationCreate
 ):
@@ -63,7 +63,7 @@ async def create_location(
         location_data.organization_id = current_user.organization_id
 
     # Check if user has access to the organization
-    if current_user.organization_id != location_data.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != location_data.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to create locations for this organization"
@@ -71,10 +71,15 @@ async def create_location(
 
     # Validate parent location if provided
     if location_data.parent_id:
-        parent_location = db.query(Location).filter(
-            Location.id == location_data.parent_id,
-            Location.organization_id == location_data.organization_id
-        ).first()
+        result = await db.execute(
+            select(Location).where(
+                and_(
+                    Location.id == location_data.parent_id,
+                    Location.organization_id == location_data.organization_id
+                )
+            )
+        )
+        parent_location = result.scalar_one_or_none()
 
         if not parent_location:
             raise HTTPException(
@@ -85,15 +90,15 @@ async def create_location(
     # Create new location
     new_location = Location(**location_data.dict())
     db.add(new_location)
-    db.commit()
-    db.refresh(new_location)
+    await db.commit()
+    await db.refresh(new_location)
 
     return new_location
 
 @router.get("", response_model=LocationListResponse)
 async def get_locations(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: Optional[UUID] = None,
     skip: int = Query(0, ge=0),
@@ -108,73 +113,79 @@ async def get_locations(
 ):
     """
     Get a paginated list of locations with optional filtering.
-    Users can only view locations within their organization unless they are superadmins.
+    Users can only view locations within their organization unless they are superusers.
     """
     # Determine which organization to query
     if organization_id is None:
         organization_id = current_user.organization_id
-    elif current_user.organization_id != organization_id and not current_user.is_superadmin:
+    elif current_user.organization_id != organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view locations for this organization"
         )
 
     # Build query
-    query = db.query(Location).filter(Location.organization_id == organization_id)
+    query = select(Location).where(Location.organization_id == organization_id)
 
     # Apply filters
     if name:
-        query = query.filter(Location.name.ilike(f"%{name}%"))
+        query = query.where(Location.name.ilike(f"%{name}%"))
     if parent_id:
-        query = query.filter(Location.parent_id == parent_id)
+        query = query.where(Location.parent_id == parent_id)
     if is_active is not None:
-        query = query.filter(Location.is_active == is_active)
+        query = query.where(Location.is_active == is_active)
     if geo_fencing_enabled is not None:
-        query = query.filter(Location.geo_fencing_enabled == geo_fencing_enabled)
+        query = query.where(Location.geo_fencing_enabled == geo_fencing_enabled)
     if country:
-        query = query.filter(Location.country.ilike(f"%{country}%"))
+        query = query.where(Location.country.ilike(f"%{country}%"))
     if state:
-        query = query.filter(Location.state.ilike(f"%{state}%"))
+        query = query.where(Location.state.ilike(f"%{state}%"))
     if city:
-        query = query.filter(Location.city.ilike(f"%{city}%"))
+        query = query.where(Location.city.ilike(f"%{city}%"))
 
     # Get total count
-    total = query.count()
+    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_result.scalar()
 
     # Apply pagination
-    locations = query.offset(skip).limit(limit).all()
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    locations = result.scalars().all()
 
-    return {
-        "items": locations,
-        "total": total,
-        "page": skip // limit + 1,
-        "size": limit
-    }
+    return LocationListResponse(
+        locations=[LocationResponse.from_orm(location) for location in locations],
+        total=total,
+        page=skip // limit + 1,
+        page_size=limit,
+        has_next=skip + limit < total,
+        has_prev=skip > 0
+    )
 
 @router.get("/hierarchy", response_model=List[LocationHierarchyItem])
 async def get_location_hierarchy(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: Optional[UUID] = None
 ):
     """
     Get locations organized in a hierarchical structure.
-    Users can only view locations within their organization unless they are superadmins.
+    Users can only view locations within their organization unless they are superusers.
     """
     # Determine which organization to query
     if organization_id is None:
         organization_id = current_user.organization_id
-    elif current_user.organization_id != organization_id and not current_user.is_superadmin:
+    elif current_user.organization_id != organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view locations for this organization"
         )
 
     # Get all locations for the organization
-    locations = db.query(Location).filter(
-        Location.organization_id == organization_id
-    ).all()
+    result = await db.execute(
+        select(Location).where(Location.organization_id == organization_id)
+    )
+    locations = result.scalars().all()
 
     # Create a mapping of ID to location data
     location_map = {location.id: LocationHierarchyItem.from_orm(location) for location in locations}
@@ -195,16 +206,17 @@ async def get_location_hierarchy(
 @router.get("/{location_id}", response_model=LocationResponse)
 async def get_location(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     location_id: UUID
 ):
     """
     Get detailed information about a specific location by ID.
-    Users can only view locations within their organization unless they are superadmins.
+    Users can only view locations within their organization unless they are superusers.
     """
     # Get location
-    location = db.query(Location).filter(Location.id == location_id).first()
+    result = await db.execute(select(Location).where(Location.id == location_id))
+    location = result.scalar_one_or_none()
 
     if not location:
         raise HTTPException(
@@ -213,7 +225,7 @@ async def get_location(
         )
 
     # Check if user has permission to view this location
-    if current_user.organization_id != location.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != location.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view this location"
@@ -224,7 +236,7 @@ async def get_location(
 @router.patch("/{location_id}", response_model=LocationResponse)
 async def update_location(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     location_id: UUID,
     location_data: LocationUpdate
@@ -234,7 +246,8 @@ async def update_location(
     Organization admins can only update locations within their organization.
     """
     # Get location
-    location = db.query(Location).filter(Location.id == location_id).first()
+    result = await db.execute(select(Location).where(Location.id == location_id))
+    location = result.scalar_one_or_none()
 
     if not location:
         raise HTTPException(
@@ -243,7 +256,7 @@ async def update_location(
         )
 
     # Check if user has permission to update this location
-    if current_user.organization_id != location.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != location.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this location"
@@ -258,10 +271,15 @@ async def update_location(
                 detail="A location cannot be its own parent"
             )
 
-        parent_location = db.query(Location).filter(
-            Location.id == location_data.parent_id,
-            Location.organization_id == location.organization_id
-        ).first()
+        result = await db.execute(
+            select(Location).where(
+                and_(
+                    Location.id == location_data.parent_id,
+                    Location.organization_id == location.organization_id
+                )
+            )
+        )
+        parent_location = result.scalar_one_or_none()
 
         if not parent_location:
             raise HTTPException(
@@ -278,7 +296,8 @@ async def update_location(
                     detail="Circular reference detected in location hierarchy"
                 )
 
-            parent = db.query(Location).filter(Location.id == current_parent_id).first()
+            result = await db.execute(select(Location).where(Location.id == current_parent_id))
+            parent = result.scalar_one_or_none()
             if not parent:
                 break
             current_parent_id = parent.parent_id
@@ -309,15 +328,15 @@ async def update_location(
     for key, value in update_data.items():
         setattr(location, key, value)
 
-    db.commit()
-    db.refresh(location)
+    await db.commit()
+    await db.refresh(location)
 
     return location
 
 @router.delete("/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_location(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     location_id: UUID,
     recursive: bool = Query(False)
@@ -328,7 +347,8 @@ async def delete_location(
     If recursive=True, child locations will also be deleted.
     """
     # Get location
-    location = db.query(Location).filter(Location.id == location_id).first()
+    result = await db.execute(select(Location).where(Location.id == location_id))
+    location = result.scalar_one_or_none()
 
     if not location:
         raise HTTPException(
@@ -337,14 +357,15 @@ async def delete_location(
         )
 
     # Check if user has permission to delete this location
-    if current_user.organization_id != location.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != location.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this location"
         )
 
     # Check if location has children
-    has_children = db.query(Location).filter(Location.parent_id == location_id).first() is not None
+    result = await db.execute(select(Location).where(Location.parent_id == location_id))
+    has_children = result.scalar_one_or_none() is not None
 
     if has_children and not recursive:
         raise HTTPException(
@@ -354,17 +375,18 @@ async def delete_location(
 
     if recursive:
         # Recursively delete all child locations
-        def delete_children(parent_id):
-            children = db.query(Location).filter(Location.parent_id == parent_id).all()
+        async def delete_children(parent_id):
+            result = await db.execute(select(Location).where(Location.parent_id == parent_id))
+            children = result.scalars().all()
             for child in children:
-                delete_children(child.id)
-                db.delete(child)
+                await delete_children(child.id)
+                await db.delete(child)
 
-        delete_children(location_id)
+        await delete_children(location_id)
 
     # Delete the location
-    db.delete(location)
-    db.commit()
+    await db.delete(location)
+    await db.commit()
 
     return None
 
@@ -372,17 +394,18 @@ async def delete_location(
 @router.post("/{location_id}/geo-fence/check", response_model=GeoFenceCheckResponse)
 async def check_geo_fence(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     location_id: UUID,
     coordinates: GeoFenceCheckRequest
 ):
     """
     Check if coordinates are within a location's geo-fence.
-    Users can only check locations within their organization unless they are superadmins.
+    Users can only check locations within their organization unless they are superusers.
     """
     # Get location
-    location = db.query(Location).filter(Location.id == location_id).first()
+    result = await db.execute(select(Location).where(Location.id == location_id))
+    location = result.scalar_one_or_none()
 
     if not location:
         raise HTTPException(
@@ -391,7 +414,7 @@ async def check_geo_fence(
         )
 
     # Check if user has permission to access this location
-    if current_user.organization_id != location.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != location.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this location"
@@ -413,16 +436,16 @@ async def check_geo_fence(
     # Check if coordinates are within the geo-fence
     inside_fence = distance <= location.geo_fencing_radius
 
-    return {
-        "inside_fence": inside_fence,
-        "distance": distance
-    }
+    return GeoFenceCheckResponse(
+        inside_fence=inside_fence,
+        distance=distance
+    )
 
 # Location Group Endpoints
 @router.post("/groups", response_model=LocationGroupResponse, status_code=status.HTTP_201_CREATED)
 async def create_location_group(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     group_data: LocationGroupCreate
 ):
@@ -435,7 +458,7 @@ async def create_location_group(
         group_data.organization_id = current_user.organization_id
 
     # Check if user has access to the organization
-    if current_user.organization_id != group_data.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != group_data.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to create location groups for this organization"
@@ -444,10 +467,15 @@ async def create_location_group(
     # Validate that all locations exist and belong to the organization
     location_ids = group_data.location_ids or []
     if location_ids:
-        locations = db.query(Location).filter(
-            Location.id.in_(location_ids),
-            Location.organization_id == group_data.organization_id
-        ).all()
+        result = await db.execute(
+            select(Location).where(
+                and_(
+                    Location.id.in_(location_ids),
+                    Location.organization_id == group_data.organization_id
+                )
+            )
+        )
+        locations = result.scalars().all()
 
         if len(locations) != len(location_ids):
             found_ids = {str(location.id) for location in locations}
@@ -461,22 +489,22 @@ async def create_location_group(
     group_dict = group_data.dict(exclude={"location_ids"})
     new_group = LocationGroup(**group_dict)
     db.add(new_group)
-    db.commit()
-    db.refresh(new_group)
+    await db.commit()
+    await db.refresh(new_group)
 
     # Add locations to the group
     if location_ids:
         for location in locations:
             new_group.locations.append(location)
-        db.commit()
-        db.refresh(new_group)
+        await db.commit()
+        await db.refresh(new_group)
 
     return new_group
 
 @router.get("/groups", response_model=LocationGroupListResponse)
 async def get_location_groups(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: Optional[UUID] = None,
     skip: int = Query(0, ge=0),
@@ -486,54 +514,59 @@ async def get_location_groups(
 ):
     """
     Get a paginated list of location groups with optional filtering.
-    Users can only view location groups within their organization unless they are superadmins.
+    Users can only view location groups within their organization unless they are superusers.
     """
     # Determine which organization to query
     if organization_id is None:
         organization_id = current_user.organization_id
-    elif current_user.organization_id != organization_id and not current_user.is_superadmin:
+    elif current_user.organization_id != organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view location groups for this organization"
         )
 
     # Build query
-    query = db.query(LocationGroup).filter(LocationGroup.organization_id == organization_id)
+    query = select(LocationGroup).where(LocationGroup.organization_id == organization_id)
 
     # Apply filters
     if name:
-        query = query.filter(LocationGroup.name.ilike(f"%{name}%"))
-
-    # Filter by location membership
+        query = query.where(LocationGroup.name.ilike(f"%{name}%"))
     if location_id:
-        query = query.filter(LocationGroup.locations.any(Location.id == location_id))
+        # Filter groups that contain a specific location
+        query = query.join(LocationGroup.locations).where(Location.id == location_id)
 
     # Get total count
-    total = query.count()
+    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_result.scalar()
 
     # Apply pagination
-    groups = query.offset(skip).limit(limit).all()
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    groups = result.scalars().all()
 
-    return {
-        "items": groups,
-        "total": total,
-        "page": skip // limit + 1,
-        "size": limit
-    }
+    return LocationGroupListResponse(
+        groups=[LocationGroupResponse.from_orm(group) for group in groups],
+        total=total,
+        page=skip // limit + 1,
+        page_size=limit,
+        has_next=skip + limit < total,
+        has_prev=skip > 0
+    )
 
 @router.get("/groups/{group_id}", response_model=LocationGroupResponse)
 async def get_location_group(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     group_id: UUID
 ):
     """
     Get detailed information about a specific location group by ID.
-    Users can only view location groups within their organization unless they are superadmins.
+    Users can only view location groups within their organization unless they are superusers.
     """
     # Get location group
-    group = db.query(LocationGroup).filter(LocationGroup.id == group_id).first()
+    result = await db.execute(select(LocationGroup).where(LocationGroup.id == group_id))
+    group = result.scalar_one_or_none()
 
     if not group:
         raise HTTPException(
@@ -542,7 +575,7 @@ async def get_location_group(
         )
 
     # Check if user has permission to view this location group
-    if current_user.organization_id != group.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != group.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view this location group"
@@ -553,7 +586,7 @@ async def get_location_group(
 @router.patch("/groups/{group_id}", response_model=LocationGroupResponse)
 async def update_location_group(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     group_id: UUID,
     group_data: LocationGroupUpdate
@@ -563,7 +596,8 @@ async def update_location_group(
     Organization admins can only update location groups within their organization.
     """
     # Get location group
-    group = db.query(LocationGroup).filter(LocationGroup.id == group_id).first()
+    result = await db.execute(select(LocationGroup).where(LocationGroup.id == group_id))
+    group = result.scalar_one_or_none()
 
     if not group:
         raise HTTPException(
@@ -572,7 +606,7 @@ async def update_location_group(
         )
 
     # Check if user has permission to update this location group
-    if current_user.organization_id != group.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != group.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this location group"
@@ -587,10 +621,15 @@ async def update_location_group(
     # Update location membership if provided
     if group_data.location_ids is not None:
         # Validate that all locations exist and belong to the organization
-        locations = db.query(Location).filter(
-            Location.id.in_(group_data.location_ids),
-            Location.organization_id == group.organization_id
-        ).all()
+        result = await db.execute(
+            select(Location).where(
+                and_(
+                    Location.id.in_(group_data.location_ids),
+                    Location.organization_id == group.organization_id
+                )
+            )
+        )
+        locations = result.scalars().all()
 
         if len(locations) != len(group_data.location_ids):
             found_ids = {str(location.id) for location in locations}
@@ -603,15 +642,15 @@ async def update_location_group(
         # Replace existing locations
         group.locations = locations
 
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
 
     return group
 
 @router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_location_group(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     group_id: UUID
 ):
@@ -620,7 +659,8 @@ async def delete_location_group(
     Organization admins can only delete location groups within their organization.
     """
     # Get location group
-    group = db.query(LocationGroup).filter(LocationGroup.id == group_id).first()
+    result = await db.execute(select(LocationGroup).where(LocationGroup.id == group_id))
+    group = result.scalar_one_or_none()
 
     if not group:
         raise HTTPException(
@@ -629,14 +669,14 @@ async def delete_location_group(
         )
 
     # Check if user has permission to delete this location group
-    if current_user.organization_id != group.organization_id and not current_user.is_superadmin:
+    if current_user.organization_id != group.organization_id and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this location group"
         )
 
     # Delete the location group
-    db.delete(group)
-    db.commit()
+    await db.delete(group)
+    await db.commit()
 
     return None

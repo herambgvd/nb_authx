@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, validator, root_validator
+from pydantic import BaseModel, EmailStr, Field, validator
 
 from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema
 
@@ -14,185 +14,157 @@ from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema
 class UserBase(BaseSchema):
     """Base schema for user data."""
     email: EmailStr
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone_number: Optional[str] = None
-    profile_picture_url: Optional[str] = None
+    username: str = Field(..., min_length=3, max_length=50)
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    phone_number: Optional[str] = Field(None, max_length=20)
+    bio: Optional[str] = Field(None, max_length=500)
+    avatar_url: Optional[str] = Field(None, max_length=500)
+    timezone: Optional[str] = Field(default="UTC", max_length=50)
+    locale: Optional[str] = Field(default="en", max_length=10)
     is_active: bool = True
-    is_verified: bool = False
-    mfa_enabled: bool = False
 
 # User Create Schema
 class UserCreate(UserBase):
     """Schema for creating a new user."""
-    password: str = Field(..., min_length=8)
-    organization_id: UUID
-    default_location_id: Optional[UUID] = None
-    role_ids: Optional[List[UUID]] = None
+    password: str = Field(..., min_length=8, max_length=128)
+    organization_id: Optional[UUID] = None
 
     @validator('password')
-    def password_strength(cls, v):
+    def validate_password_strength(cls, v):
         """Validate password strength."""
-        # Add more complex password validation as needed
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters')
+
+        # Check for at least one uppercase letter
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+
+        # Check for at least one lowercase letter
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain at least one lowercase letter')
+
+        # Check for at least one digit
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+
         return v
 
 # User Update Schema
 class UserUpdate(BaseSchema):
     """Schema for updating an existing user."""
     email: Optional[EmailStr] = None
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone_number: Optional[str] = None
-    profile_picture_url: Optional[str] = None
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    first_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    phone_number: Optional[str] = Field(None, max_length=20)
+    bio: Optional[str] = Field(None, max_length=500)
+    avatar_url: Optional[str] = Field(None, max_length=500)
+    timezone: Optional[str] = Field(None, max_length=50)
+    locale: Optional[str] = Field(None, max_length=10)
     is_active: Optional[bool] = None
-    is_verified: Optional[bool] = None
-    default_location_id: Optional[UUID] = None
-    settings: Optional[Dict[str, Any]] = None
 
 # User Password Update Schema
 class UserPasswordUpdate(BaseSchema):
     """Schema for updating a user's password."""
     current_password: str
-    new_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
     @validator('new_password')
-    def password_strength(cls, v):
+    def validate_password_strength(cls, v):
         """Validate password strength."""
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters')
+
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain at least one lowercase letter')
+
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+
         return v
 
-# User MFA Update Schema
-class UserMFAUpdate(BaseSchema):
-    """Schema for updating a user's MFA settings."""
-    mfa_enabled: bool
-    mfa_type: Optional[str] = None  # totp, sms, email
+# User MFA Setup Schema
+class UserMFASetup(BaseSchema):
+    """Schema for setting up MFA."""
+    mfa_type: str = Field(..., pattern="^(totp|sms|email)$")
+    phone_number: Optional[str] = None
 
-# User Response Schema
-class UserResponse(UUIDSchema, UserBase, TimestampSchema):
-    """Schema for user response data."""
-    organization_id: UUID
-    default_location_id: Optional[UUID] = None
-    last_login: Optional[datetime] = None
-    settings: Optional[Dict[str, Any]] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "email": "user@example.com",
-                "username": "example_user",
-                "first_name": "John",
-                "last_name": "Doe",
-                "phone_number": "+1234567890",
-                "profile_picture_url": "https://example.com/profiles/john.jpg",
-                "is_active": True,
-                "is_verified": True,
-                "mfa_enabled": True,
-                "organization_id": "550e8400-e29b-41d4-a716-446655440001",
-                "default_location_id": "550e8400-e29b-41d4-a716-446655440002",
-                "last_login": "2023-01-01T00:00:00Z",
-                "settings": {"theme": "dark", "notifications": True},
-                "created_at": "2023-01-01T00:00:00Z",
-                "updated_at": "2023-01-01T00:00:00Z"
-            }
-        }
-
-# User List Response Schema
-class UserListResponse(BaseSchema):
-    """Schema for paginated user response data."""
-    items: List[UserResponse]
-    total: int
-    page: int
-    size: int
-
-# User Role Assignment Schema
-class UserRoleAssignment(BaseSchema):
-    """Schema for assigning roles to a user."""
-    role_ids: List[UUID]
-    is_primary: Optional[bool] = None
-
-# User Status Update Schema
-class UserStatusUpdate(BaseSchema):
-    """Schema for updating a user's status."""
-    is_active: bool
-    reason: Optional[str] = None
-
-# User Verification Schema
-class UserVerificationRequest(BaseSchema):
-    """Schema for requesting user verification."""
-    verification_type: str = "email"  # email, phone, document
-
-class UserVerificationComplete(BaseSchema):
-    """Schema for completing user verification."""
-    verification_code: str
+# User MFA Verify Schema
+class UserMFAVerify(BaseSchema):
+    """Schema for verifying MFA."""
+    code: str = Field(..., min_length=6, max_length=8)
 
 # User Device Schema
 class UserDeviceBase(BaseSchema):
     """Base schema for user device data."""
-    device_name: str
-    device_type: str  # mobile, desktop, tablet, other
-    device_id: str
-    operating_system: Optional[str] = None
-    browser: Optional[str] = None
-    ip_address: Optional[str] = None
-    location: Optional[str] = None
+    device_name: Optional[str] = Field(None, max_length=255)
+    device_type: str = Field(..., pattern="^(mobile|desktop|tablet)$")
+    is_trusted: bool = False
 
 class UserDeviceCreate(UserDeviceBase):
     """Schema for registering a new device."""
-    user_id: UUID
+    pass
 
 class UserDeviceResponse(UUIDSchema, UserDeviceBase, TimestampSchema):
     """Schema for device response data."""
     user_id: UUID
-    last_used: Optional[datetime] = None
-    is_current: bool = False
-    is_trusted: bool = False
+    device_fingerprint: str
+    user_agent: str
+    browser_name: Optional[str] = None
+    browser_version: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    ip_address: str
+    location: Optional[str] = None
+    country_code: Optional[str] = None
+    is_active: bool
+    last_seen: Optional[datetime] = None
+    login_count: int
 
-class UserDeviceListResponse(BaseSchema):
-    """Schema for paginated device response data."""
-    items: List[UserDeviceResponse]
+# User Response Schema
+class UserResponse(UUIDSchema, UserBase, TimestampSchema):
+    """Schema for user response data."""
+    organization_id: Optional[UUID] = None
+    is_verified: bool
+    is_superuser: bool
+    mfa_enabled: bool
+    failed_login_attempts: int
+    locked_until: Optional[datetime] = None
+    last_login: Optional[datetime] = None
+    email_verified_at: Optional[datetime] = None
+    password_changed_at: Optional[datetime] = None
+
+    @property
+    def full_name(self) -> str:
+        """Get user's full name."""
+        return f"{self.first_name} {self.last_name}"
+
+    @property
+    def is_locked(self) -> bool:
+        """Check if user account is locked."""
+        if not self.locked_until:
+            return False
+        return datetime.utcnow() < self.locked_until
+
+# User Profile Schema (public view)
+class UserProfile(BaseSchema):
+    """Schema for public user profile."""
+    id: UUID
+    username: str
+    first_name: str
+    last_name: str
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+
+# User List Response Schema
+class UserListResponse(BaseSchema):
+    """Schema for user list response."""
+    users: List[UserResponse]
     total: int
-
-# User Import/Export Schemas
-class UserImportItem(BaseSchema):
-    """Schema for importing a single user."""
-    email: EmailStr
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone_number: Optional[str] = None
-    default_location_id: Optional[UUID] = None
-    role_ids: Optional[List[UUID]] = None
-    is_active: bool = True
-    password: Optional[str] = None  # If not provided, a random password will be generated
-    send_invitation: bool = True
-
-class UserImportRequest(BaseSchema):
-    """Schema for importing multiple users."""
-    users: List[UserImportItem]
-    organization_id: UUID
-
-class UserImportResponse(BaseSchema):
-    """Schema for import results."""
-    total: int
-    created: int
-    failed: int
-    errors: List[Dict[str, Any]] = []
-
-class UserExportRequest(BaseSchema):
-    """Schema for exporting users."""
-    organization_id: UUID
-    include_inactive: bool = False
-    include_roles: bool = True
-    format: str = "json"  # json, csv, xlsx
-
-class UserExportResponse(BaseSchema):
-    """Schema for export results."""
-    download_url: str
-    expires_at: datetime
-    record_count: int
+    page: int
+    page_size: int
+    total_pages: int

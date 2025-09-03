@@ -2,13 +2,14 @@
 Organization API endpoints for the AuthX service.
 This module provides API endpoints for organization management functionality.
 """
-from typing import List, Optional, Dict, Any
+from typing import Optional
 from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
-from app.api.deps import get_current_user, get_db, get_organization_admin, get_current_superadmin
+from app.api.deps import get_current_user, get_async_db, get_organization_admin, get_current_superuser
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.organization_settings import OrganizationSettings
@@ -20,11 +21,7 @@ from app.schemas.organization import (
 )
 from app.schemas.organization_settings import (
     OrganizationSettings as OrganizationSettingsSchema,
-    OrganizationSettingsUpdate,
-    SecuritySettings,
-    BrandingSettings,
-    NotificationSettings,
-    IntegrationSettings
+    OrganizationSettingsUpdate
 )
 
 router = APIRouter()
@@ -33,8 +30,8 @@ router = APIRouter()
 @router.post("", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
 async def create_organization(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     organization_data: OrganizationCreate
 ):
     """
@@ -43,9 +40,10 @@ async def create_organization(
     """
     # Check if organization with the same domain already exists
     if organization_data.domain:
-        existing_org = db.query(Organization).filter(
-            Organization.domain == organization_data.domain
-        ).first()
+        result = await db.execute(
+            select(Organization).where(Organization.domain == organization_data.domain)
+        )
+        existing_org = result.scalar_one_or_none()
         if existing_org:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -55,13 +53,13 @@ async def create_organization(
     # Create new organization
     new_organization = Organization(**organization_data.dict())
     db.add(new_organization)
-    db.commit()
-    db.refresh(new_organization)
+    await db.commit()
+    await db.refresh(new_organization)
 
     # Create default organization settings
     default_settings = OrganizationSettings(organization_id=new_organization.id)
     db.add(default_settings)
-    db.commit()
+    await db.commit()
 
     return new_organization
 
@@ -69,8 +67,8 @@ async def create_organization(
 @router.get("", response_model=OrganizationListResponse)
 async def get_organizations(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     name: Optional[str] = None,
@@ -80,45 +78,51 @@ async def get_organizations(
 ):
     """
     Get a paginated list of organizations with optional filtering.
-    Only superadmins can view all organizations.
+    Only superusers can view all organizations.
     """
     # Build query
-    query = db.query(Organization)
+    query = select(Organization)
 
     # Apply filters
     if name:
-        query = query.filter(Organization.name.ilike(f"%{name}%"))
+        query = query.where(Organization.name.ilike(f"%{name}%"))
     if is_active is not None:
-        query = query.filter(Organization.is_active == is_active)
+        query = query.where(Organization.is_active == is_active)
     if is_verified is not None:
-        query = query.filter(Organization.is_verified == is_verified)
+        query = query.where(Organization.is_verified == is_verified)
     if subscription_plan:
-        query = query.filter(Organization.subscription_plan == subscription_plan)
+        query = query.where(Organization.subscription_plan == subscription_plan)
 
     # Get total count
-    total = query.count()
+    total_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(total_query)
+    total = total_result.scalar()
 
     # Apply pagination
-    organizations = query.offset(skip).limit(limit).all()
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    organizations = result.scalars().all()
 
-    return {
-        "items": organizations,
-        "total": total,
-        "page": skip // limit + 1,
-        "size": limit
-    }
+    return OrganizationListResponse(
+        organizations=[OrganizationResponse.from_orm(org) for org in organizations],
+        total=total,
+        page=skip // limit + 1,
+        page_size=limit,
+        has_next=skip + limit < total,
+        has_prev=skip > 0
+    )
 
 # Get organization by ID
 @router.get("/{organization_id}", response_model=OrganizationResponse)
 async def get_organization(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: UUID
 ):
     """
     Get detailed information about a specific organization by ID.
-    Users can only view their own organization unless they are superadmins.
+    Users can only view their own organization unless they are superusers.
     """
     # Check permissions
     if not current_user.is_superadmin and current_user.organization_id != organization_id:
@@ -128,7 +132,8 @@ async def get_organization(
         )
 
     # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    organization = result.scalar_one_or_none()
 
     if not organization:
         raise HTTPException(
@@ -142,7 +147,7 @@ async def get_organization(
 @router.patch("/{organization_id}", response_model=OrganizationResponse)
 async def update_organization(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: UUID,
     organization_data: OrganizationUpdate
@@ -153,7 +158,8 @@ async def update_organization(
     Some fields may only be updated by superadmins.
     """
     # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    organization = result.scalar_one_or_none()
 
     if not organization:
         raise HTTPException(
@@ -182,10 +188,13 @@ async def update_organization(
 
     # Check domain uniqueness if updating domain
     if organization_data.domain and organization_data.domain != organization.domain:
-        existing_org = db.query(Organization).filter(
-            Organization.domain == organization_data.domain,
-            Organization.id != organization_id
-        ).first()
+        result = await db.execute(
+            select(Organization).where(
+                Organization.domain == organization_data.domain,
+                Organization.id != organization_id
+            )
+        )
+        existing_org = result.scalar_one_or_none()
         if existing_org:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -197,8 +206,8 @@ async def update_organization(
     for key, value in update_data.items():
         setattr(organization, key, value)
 
-    db.commit()
-    db.refresh(organization)
+    await db.commit()
+    await db.refresh(organization)
 
     return organization
 
@@ -206,8 +215,8 @@ async def update_organization(
 @router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     organization_id: UUID
 ):
     """
@@ -215,7 +224,8 @@ async def delete_organization(
     Only superadmins can delete organizations.
     """
     # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    organization = result.scalar_one_or_none()
 
     if not organization:
         raise HTTPException(
@@ -224,8 +234,8 @@ async def delete_organization(
         )
 
     # Delete organization (and all related entities through cascade)
-    db.delete(organization)
-    db.commit()
+    await db.delete(organization)
+    await db.commit()
 
     return None
 
@@ -233,7 +243,7 @@ async def delete_organization(
 @router.post("/{organization_id}/verification/request", response_model=OrganizationResponse)
 async def request_verification(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_organization_admin),
     organization_id: UUID,
     verification_method: str = Body(..., embed=True)
@@ -269,8 +279,8 @@ async def request_verification(
     # Update verification status and method
     organization.verification_status = "requested"
     organization.verification_method = verification_method
-    db.commit()
-    db.refresh(organization)
+    await db.commit()
+    await db.refresh(organization)
 
     # Here we would typically initiate the verification process based on the method
     # For example, sending a verification email, initiating a document review, etc.
@@ -280,8 +290,8 @@ async def request_verification(
 @router.post("/{organization_id}/verification/approve", response_model=OrganizationResponse)
 async def approve_verification(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     organization_id: UUID
 ):
     """
@@ -301,16 +311,16 @@ async def approve_verification(
     organization.verification_status = "approved"
     organization.is_verified = True
     organization.verification_date = datetime.now().strftime("%Y-%m-%d")
-    db.commit()
-    db.refresh(organization)
+    await db.commit()
+    await db.refresh(organization)
 
     return organization
 
 @router.post("/{organization_id}/verification/reject", response_model=OrganizationResponse)
 async def reject_verification(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     organization_id: UUID,
     reason: str = Body(..., embed=True)
 ):
@@ -330,8 +340,8 @@ async def reject_verification(
     # Update verification status
     organization.verification_status = "rejected"
     organization.is_verified = False
-    db.commit()
-    db.refresh(organization)
+    await db.commit()
+    await db.refresh(organization)
 
     # Here we would typically notify the organization about the rejection
 
@@ -341,8 +351,8 @@ async def reject_verification(
 @router.post("/{organization_id}/subscription", response_model=OrganizationResponse)
 async def update_subscription(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     organization_id: UUID,
     subscription_plan: str = Body(...),
     start_date: Optional[str] = Body(None),
@@ -376,8 +386,8 @@ async def update_subscription(
     if end_date:
         organization.subscription_end_date = end_date
 
-    db.commit()
-    db.refresh(organization)
+    await db.commit()
+    await db.refresh(organization)
 
     return organization
 
@@ -385,7 +395,7 @@ async def update_subscription(
 @router.get("/{organization_id}/settings", response_model=OrganizationSettingsSchema)
 async def get_organization_settings(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: UUID
 ):
@@ -417,8 +427,8 @@ async def get_organization_settings(
     if not settings:
         settings = OrganizationSettings(organization_id=organization_id)
         db.add(settings)
-        db.commit()
-        db.refresh(settings)
+        await db.commit()
+        await db.refresh(settings)
 
     # Convert database model to schema
     return OrganizationSettingsSchema(
@@ -432,7 +442,7 @@ async def get_organization_settings(
 @router.patch("/{organization_id}/settings", response_model=OrganizationSettingsSchema)
 async def update_organization_settings(
     *,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
     organization_id: UUID,
     settings_data: OrganizationSettingsUpdate
@@ -494,8 +504,8 @@ async def update_organization_settings(
             settings.custom_settings = {}
         settings.custom_settings.update(update_data["custom_settings"])
 
-    db.commit()
-    db.refresh(settings)
+    await db.commit()
+    await db.refresh(settings)
 
     # Convert database model to schema
     return OrganizationSettingsSchema(
@@ -510,8 +520,8 @@ async def update_organization_settings(
 @router.post("/{organization_id}/data-isolation", response_model=OrganizationResponse)
 async def update_data_isolation(
     *,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser),
     organization_id: UUID,
     isolation_level: str = Body(..., embed=True)
 ):
@@ -538,7 +548,7 @@ async def update_data_isolation(
 
     # Update isolation level
     organization.data_isolation_level = isolation_level
-    db.commit()
-    db.refresh(organization)
+    await db.commit()
+    await db.refresh(organization)
 
     return organization

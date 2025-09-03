@@ -2,123 +2,184 @@
 Core configuration module for the AuthX service.
 This module manages loading environment variables and other configuration settings.
 """
-import os
-from typing import Any, Dict, List, Optional, Union
-from pydantic import AnyHttpUrl, validator
+from typing import List, Optional, Any, Union
+from pydantic import validator, Field
 from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+import os  # Added import for os module
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Debug: Print environment variables related to database
+print(f"Environment DB URL: {os.getenv('DATABASE_URL')}")
+print(f"Current directory: {os.getcwd()}")
 
 class Settings(BaseSettings):
     """Application settings class that loads configuration from environment variables."""
 
     # Application settings
-    APP_NAME: str = "AuthX"
-    VERSION: str = "0.1.0"
-    ENVIRONMENT: str = "development"
-    PROJECT_NAME: str = "AuthX"
-    DEBUG: bool = False
+    APP_NAME: str = Field(default="AuthX")
+    VERSION: str = Field(default="0.1.0")
+    ENVIRONMENT: str = Field(default="development")
+    PROJECT_NAME: str = Field(default="AuthX")
+    DEBUG: bool = Field(default=False)
 
     # API settings
-    API_V1_PREFIX: str = "/api/v1"
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
-    ALGORITHM: str = "HS256"
+    API_V1_PREFIX: str = Field(default="/api/v1")
+    SECRET_KEY: str = Field(default="development_secret_key_change_in_production")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
+    ALGORITHM: str = Field(default="HS256")
 
-    # CORS settings
-    ALLOWED_ORIGINS: Union[List[str], List[AnyHttpUrl]] = ["http://localhost:3000", "http://localhost:8000"]
-    CORS_ORIGINS: Union[List[str], List[AnyHttpUrl]] = ["*"]
-
-    @validator("CORS_ORIGINS", pre=True)
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
-
-    @validator("ALLOWED_ORIGINS", pre=True)
-    def assemble_allowed_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
+    # CORS settings - using List[str] fields with string defaults
+    ALLOWED_ORIGINS_STR: List[str] = Field(default=["http://localhost:3000", "http://localhost:8000"])
+    CORS_ORIGINS_STR: List[str] = Field(default=["*"])
 
     # Database settings
-    DATABASE_URI: str = os.getenv("DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/authx")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/authx")
-    DATABASE_POOL_SIZE: int = int(os.getenv("DATABASE_POOL_SIZE", "5"))
-    DATABASE_MAX_OVERFLOW: int = int(os.getenv("DATABASE_MAX_OVERFLOW", "10"))
-    DATABASE_POOL_TIMEOUT: int = int(os.getenv("DATABASE_POOL_TIMEOUT", "30"))
+    DATABASE_URL: str = Field(default="postgresql://postgres:varanasi@localhost:5432/nb_auth")
+    DATABASE_POOL_SIZE: int = Field(default=5)
+    DATABASE_MAX_OVERFLOW: int = Field(default=10)
+    DATABASE_ECHO: bool = Field(default=False)
 
-    # Redis settings
-    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
-    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
-    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
-    REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD", "")
-    REDIS_CACHE_EXPIRATION: int = int(os.getenv("REDIS_CACHE_EXPIRATION", "3600"))
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    # Redis settings for caching and sessions
+    REDIS_URL: str = Field(default="redis://localhost:6379/0")
+    REDIS_HOST: str = Field(default="localhost")
+    REDIS_PORT: int = Field(default=6379)
+    REDIS_DB: int = Field(default=0)
+    REDIS_PASSWORD: Optional[str] = Field(default=None)
 
     # Email settings
-    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "your-email@gmail.com")
-    SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASSWORD", "")
-    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "noreply@yourcompany.com")
-    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "AuthX Security")
-
-    # Legacy email settings
-    SMTP_TLS: bool = os.getenv("SMTP_TLS", "True").lower() == "true"
-    SMTP_HOST: Optional[str] = os.getenv("SMTP_HOST", "")
-    SMTP_USER: Optional[str] = os.getenv("SMTP_USER", "")
-    EMAILS_FROM_EMAIL: Optional[str] = os.getenv("EMAILS_FROM_EMAIL", "")
-    EMAILS_FROM_NAME: Optional[str] = os.getenv("EMAILS_FROM_NAME", "")
+    SMTP_HOST: str = Field(default="localhost")
+    SMTP_PORT: int = Field(default=587)
+    SMTP_USER: Optional[str] = Field(default=None)
+    SMTP_PASSWORD: Optional[str] = Field(default=None)
+    SMTP_TLS: bool = Field(default=True)
+    SMTP_SSL: bool = Field(default=False)
+    FROM_EMAIL: str = Field(default="noreply@authx.com")
+    FROM_NAME: str = Field(default="AuthX")
 
     # Security settings
-    PASSWORD_HASH_ALGORITHM: str = os.getenv("PASSWORD_HASH_ALGORITHM", "bcrypt")
-    MIN_PASSWORD_LENGTH: int = int(os.getenv("MIN_PASSWORD_LENGTH", "8"))
-    BRUTE_FORCE_MAX_ATTEMPTS: int = int(os.getenv("BRUTE_FORCE_MAX_ATTEMPTS", "5"))
-    BRUTE_FORCE_WINDOW_MINUTES: int = int(os.getenv("BRUTE_FORCE_WINDOW_MINUTES", "15"))
-    MFA_ENABLED: bool = os.getenv("MFA_ENABLED", "True").lower() == "true"
-    DEFAULT_MFA_TYPE: str = os.getenv("DEFAULT_MFA_TYPE", "totp")
+    PASSWORD_MIN_LENGTH: int = Field(default=8)
+    PASSWORD_REQUIRE_UPPERCASE: bool = Field(default=True)
+    PASSWORD_REQUIRE_LOWERCASE: bool = Field(default=True)
+    PASSWORD_REQUIRE_DIGITS: bool = Field(default=True)
+    PASSWORD_REQUIRE_SPECIAL: bool = Field(default=True)
+
+    # Session settings
+    SESSION_EXPIRE_MINUTES: int = Field(default=60)
+    REMEMBER_ME_EXPIRE_DAYS: int = Field(default=30)
 
     # Rate limiting
-    RATE_LIMIT_ENABLED: bool = os.getenv("RATE_LIMIT_ENABLED", "True").lower() == "true"
-    RATE_LIMIT_DEFAULT: str = os.getenv("RATE_LIMIT_DEFAULT", "60/minute")
-    RATE_LIMIT_AUTH: str = os.getenv("RATE_LIMIT_AUTH", "10/minute")
+    RATE_LIMIT_PER_MINUTE: int = Field(default=60)
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = Field(default=5)
 
-    # Metrics and monitoring
-    METRICS_ENABLED: bool = os.getenv("METRICS_ENABLED", "True").lower() == "true"
-    METRICS_ENDPOINT_ENABLED: bool = os.getenv("METRICS_ENDPOINT_ENABLED", "True").lower() == "true"
-    PROMETHEUS_MULTIPROC_DIR: str = os.getenv("PROMETHEUS_MULTIPROC_DIR", "/tmp")
-
-    # File storage
-    STORAGE_TYPE: str = os.getenv("STORAGE_TYPE", "local")
-    STORAGE_LOCAL_PATH: str = os.getenv("STORAGE_LOCAL_PATH", "./storage")
-    S3_BUCKET: str = os.getenv("S3_BUCKET", "authx-storage")
-    S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "your-s3-access-key")
-    S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "your-s3-secret-key")
-    S3_REGION: str = os.getenv("S3_REGION", "us-east-1")
-
-    # AI Integration
-    AI_ENABLED: bool = os.getenv("AI_ENABLED", "False").lower() == "true"
-    AI_SERVICE_URL: str = os.getenv("AI_SERVICE_URL", "http://localhost:5000/api")
-    AI_API_KEY: str = os.getenv("AI_API_KEY", "your-ai-api-key")
-
-    # External services
-    GEOLOCATION_API_URL: str = os.getenv("GEOLOCATION_API_URL", "https://ipgeolocation.example.com/api")
-    GEOLOCATION_API_KEY: str = os.getenv("GEOLOCATION_API_KEY", "your-geolocation-api-key")
-
-    # Super Admin initial setup
-    INITIAL_SUPERADMIN_EMAIL: str = os.getenv("INITIAL_SUPERADMIN_EMAIL", "admin@example.com")
-    INITIAL_SUPERADMIN_PASSWORD: str = os.getenv("INITIAL_SUPERADMIN_PASSWORD", "change-me-immediately")
+    # File upload settings
+    MAX_FILE_SIZE: int = Field(default=10 * 1024 * 1024)  # 10MB
+    ALLOWED_FILE_TYPES: str = Field(default="image/jpeg,image/png,image/gif,application/pdf")
 
     # Logging settings
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    LOG_LEVEL: str = Field(default="INFO")
+    LOG_FILE: Optional[str] = Field(default=None)
+
+    # External service settings
+    GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
+    GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    MICROSOFT_CLIENT_ID: Optional[str] = Field(default=None)
+    MICROSOFT_CLIENT_SECRET: Optional[str] = Field(default=None)
+
+    # MFA settings
+    MFA_ISSUER: str = Field(default="AuthX")
+    MFA_CODE_EXPIRE_MINUTES: int = Field(default=5)
+
+    # Audit settings
+    ENABLE_AUDIT_LOGGING: bool = Field(default=True)
+    AUDIT_LOG_RETENTION_DAYS: int = Field(default=90)
 
     class Config:
+        """Pydantic configuration."""
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
-# Create global settings object
+    @validator("REDIS_PASSWORD", pre=True)
+    def parse_redis_password(cls, v: Any) -> Optional[str]:
+        """Handle Redis password, converting empty strings to None."""
+        if v is None or v == "" or v == "null":
+            return None
+        return str(v)
+
+    @validator("SMTP_USER", pre=True)
+    def parse_smtp_user(cls, v: Any) -> Optional[str]:
+        """Handle SMTP user, converting empty strings to None."""
+        if v is None or v == "" or v == "null":
+            return None
+        return str(v)
+
+    @validator("SMTP_PASSWORD", pre=True)
+    def parse_smtp_password(cls, v: Any) -> Optional[str]:
+        """Handle SMTP password, converting empty strings to None."""
+        if v is None or v == "" or v == "null":
+            return None
+        return str(v)
+
+    @validator("LOG_FILE", pre=True)
+    def parse_log_file(cls, v: Any) -> Optional[str]:
+        """Handle log file path, converting empty strings to None."""
+        if v is None or v == "" or v == "null":
+            return None
+        return str(v)
+
+    @validator("CORS_ORIGINS_STR", pre=True)
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        """Parse CORS origins from string or list."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, list):
+            return [str(origin).strip() for origin in v if origin]
+        return v
+
+    @validator("ALLOWED_ORIGINS_STR", pre=True)
+    def assemble_allowed_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        """Parse allowed origins from string or list."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, list):
+            return [str(origin).strip() for origin in v if origin]
+        return v
+
+    @property
+    def allowed_file_types_list(self) -> List[str]:
+        """Get allowed file types as list."""
+        return [ft.strip() for ft in self.ALLOWED_FILE_TYPES.split(",") if ft.strip()]
+
+    def get_database_url(self, async_mode: bool = False) -> str:
+        """Get database URL with optional async driver."""
+        if async_mode:
+            # Convert PostgreSQL URL to async version
+            if self.DATABASE_URL.startswith("postgresql://"):
+                return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+            elif self.DATABASE_URL.startswith("postgresql+psycopg2://"):
+                return self.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+        return self.DATABASE_URL
+
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production environment."""
+        return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development environment."""
+        return self.ENVIRONMENT.lower() == "development"
+
+    @property
+    def is_testing(self) -> bool:
+        """Check if running in testing environment."""
+        return self.ENVIRONMENT.lower() == "testing"
+
+# Create global settings instance
 settings = Settings()
+
+# Export settings for easy import
+__all__ = ["settings", "Settings"]

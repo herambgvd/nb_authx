@@ -1,0 +1,1965 @@
+{
+	"info": {
+		"_postman_id": "authx-api-collection",
+		"name": "AuthX API Collection",
+		"description": "Comprehensive API collection for AuthX authentication and user management system",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "authx-system"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin@acme-corp.example.com\",\n  \"password\": \"AuthX123!\",\n  \"remember_me\": false,\n  \"device_name\": \"Postman Client\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticate user and receive access/refresh tokens"
+					},
+					"response": []
+				},
+				{
+					"name": "MFA Verify",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{mfa_session_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"code\": \"123456\",\n  \"mfa_session_token\": \"{{mfa_session_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/mfa/verify",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"mfa",
+								"verify"
+							]
+						},
+						"description": "Verify MFA code and complete authentication"
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/refresh",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"refresh"
+							]
+						},
+						"description": "Refresh access token using refresh token"
+					},
+					"response": []
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newuser@example.com\",\n  \"username\": \"newuser\",\n  \"password\": \"AuthX123!\",\n  \"first_name\": \"New\",\n  \"last_name\": \"User\",\n  \"organization_id\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Register a new user account"
+					},
+					"response": []
+				},
+				{
+					"name": "Password Reset Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@acme-corp.example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/password-reset",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"password-reset"
+							]
+						},
+						"description": "Request password reset for user"
+					},
+					"response": []
+				},
+				{
+					"name": "Password Reset Confirm",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"reset_token_here\",\n  \"new_password\": \"NewPassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/password-reset/confirm",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"password-reset",
+								"confirm"
+							]
+						},
+						"description": "Confirm password reset with token"
+					},
+					"response": []
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"current_password\": \"AuthX123!\",\n  \"new_password\": \"NewPassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/password-change",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"password-change"
+							]
+						},
+						"description": "Change user password (authenticated)"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"email_verification_token\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/verify-email",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"verify-email"
+							]
+						},
+						"description": "Verify user email address"
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"all_devices\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/logout",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"logout"
+							]
+						},
+						"description": "Logout user and invalidate tokens"
+					},
+					"response": []
+				},
+				{
+					"name": "List Sessions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/sessions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"sessions"
+							]
+						},
+						"description": "List active user sessions"
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication and session management endpoints"
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Create User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newuser@acme-corp.example.com\",\n  \"username\": \"newuser\",\n  \"password\": \"AuthX123!\",\n  \"first_name\": \"New\",\n  \"last_name\": \"User\",\n  \"phone_number\": \"+1-555-1234\",\n  \"bio\": \"Test user\",\n  \"is_active\": true,\n  \"is_verified\": false,\n  \"organization_id\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								""
+							]
+						},
+						"description": "Create a new user"
+					},
+					"response": []
+				},
+				{
+					"name": "List Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/?skip=0&limit=10&search=&is_active=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								""
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "is_active",
+									"value": "true"
+								}
+							]
+						},
+						"description": "List users with pagination and filtering"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{user_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"{{user_id}}"
+							]
+						},
+						"description": "Get user by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Updated\",\n  \"last_name\": \"User\",\n  \"bio\": \"Updated bio\",\n  \"phone_number\": \"+1-555-9999\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{user_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"{{user_id}}"
+							]
+						},
+						"description": "Update user information"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{user_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"{{user_id}}"
+							]
+						},
+						"description": "Delete user"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me"
+							]
+						},
+						"description": "Get current authenticated user profile"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Current User Profile",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Updated First\",\n  \"last_name\": \"Updated Last\",\n  \"bio\": \"Updated bio\",\n  \"timezone\": \"UTC\",\n  \"locale\": \"en\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me"
+							]
+						},
+						"description": "Update current user profile"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Devices",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{user_id}}/devices",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"{{user_id}}",
+								"devices"
+							]
+						},
+						"description": "Get user's registered devices"
+					},
+					"response": []
+				},
+				{
+					"name": "Setup MFA",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"mfa_type\": \"totp\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/mfa/setup",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"mfa",
+								"setup"
+							]
+						},
+						"description": "Setup MFA for current user"
+					},
+					"response": []
+				}
+			],
+			"description": "User management endpoints"
+		},
+		{
+			"name": "Organizations",
+			"item": [
+				{
+					"name": "Create Organization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Organization\",\n  \"slug\": \"new-org\",\n  \"description\": \"A new test organization\",\n  \"is_active\": true,\n  \"max_users\": 100,\n  \"subscription_tier\": \"professional\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"organizations",
+								""
+							]
+						},
+						"description": "Create a new organization"
+					},
+					"response": []
+				},
+				{
+					"name": "List Organizations",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/?skip=0&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"organizations",
+								""
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "List organizations"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"organizations",
+								"{{organization_id}}"
+							]
+						},
+						"description": "Get organization by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Organization",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Organization Name\",\n  \"description\": \"Updated description\",\n  \"max_users\": 150\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"organizations",
+								"{{organization_id}}"
+							]
+						},
+						"description": "Update organization"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization Settings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}/settings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"organizations",
+								"{{organization_id}}",
+								"settings"
+							]
+						},
+						"description": "Get organization settings"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Organization Settings",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"security_settings\": {\n    \"enforce_mfa\": true,\n    \"password_expiry_days\": 90,\n    \"session_timeout_minutes\": 60,\n    \"max_login_attempts\": 5\n  },\n  \"notification_settings\": {\n    \"email_notifications\": true,\n    \"security_alerts\": true\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}/settings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"organizations",
+								"{{organization_id}}",
+								"settings"
+							]
+						},
+						"description": "Update organization settings"
+					},
+					"response": []
+				}
+			],
+			"description": "Organization management endpoints"
+		},
+		{
+			"name": "Roles & Permissions",
+			"item": [
+				{
+					"name": "List Roles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/?skip=0&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								""
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "List roles with pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Custom Role\",\n  \"slug\": \"custom-role\",\n  \"description\": \"A custom role for testing\",\n  \"permissions_config\": {\n    \"user\": [\"read\"],\n    \"organization\": [\"read\"]\n  },\n  \"priority\": 50,\n  \"is_system\": false,\n  \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								""
+							]
+						},
+						"description": "Create a new role"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								"{{role_id}}"
+							]
+						},
+						"description": "Get role by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Role Name\",\n  \"description\": \"Updated description\",\n  \"permissions_config\": {\n    \"user\": [\"read\", \"write\"],\n    \"organization\": [\"read\"]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								"{{role_id}}"
+							]
+						},
+						"description": "Update role"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								"{{role_id}}"
+							]
+						},
+						"description": "Delete role"
+					},
+					"response": []
+				},
+				{
+					"name": "List Permissions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/permissions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								"permissions"
+							]
+						},
+						"description": "List all available permissions"
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Role to User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"role_id\": \"{{role_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/assign",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roles",
+								"assign"
+							]
+						},
+						"description": "Assign role to user"
+					},
+					"response": []
+				}
+			],
+			"description": "Role and permission management endpoints"
+		},
+		{
+			"name": "Locations",
+			"item": [
+				{
+					"name": "List Locations",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/?skip=0&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"locations",
+								""
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "List locations"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Office\",\n  \"location_type\": \"office\",\n  \"code\": \"NO\",\n  \"description\": \"A new office location\",\n  \"address_line1\": \"123 New Street\",\n  \"city\": \"New York\",\n  \"state\": \"NY\",\n  \"postal_code\": \"10001\",\n  \"country\": \"USA\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"phone\": \"+1-555-0123\",\n  \"is_primary\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"locations",
+								""
+							]
+						},
+						"description": "Create a new location"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{location_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"locations",
+								"{{location_id}}"
+							]
+						},
+						"description": "Get location by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Office Name\",\n  \"description\": \"Updated description\",\n  \"phone\": \"+1-555-9999\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{location_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"locations",
+								"{{location_id}}"
+							]
+						},
+						"description": "Update location"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Location",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{location_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"locations",
+								"{{location_id}}"
+							]
+						},
+						"description": "Delete location"
+					},
+					"response": []
+				},
+				{
+					"name": "List Location Groups",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/groups",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"locations",
+								"groups"
+							]
+						},
+						"description": "List location groups"
+					},
+					"response": []
+				}
+			],
+			"description": "Location management endpoints"
+		},
+		{
+			"name": "Admin",
+			"item": [
+				{
+					"name": "System Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/system/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"system",
+								"status"
+							]
+						},
+						"description": "Get system status and health"
+					},
+					"response": []
+				},
+				{
+					"name": "System Config",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/system/config",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"system",
+								"config"
+							]
+						},
+						"description": "Get system configuration"
+					},
+					"response": []
+				},
+				{
+					"name": "Update System Config",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"key\": \"security.max_login_attempts\",\n  \"value\": {\n    \"max_attempts\": 3,\n    \"lockout_duration_minutes\": 15\n  },\n  \"description\": \"Updated login attempt limits\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/system/config",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"system",
+								"config"
+							]
+						},
+						"description": "Update system configuration"
+					},
+					"response": []
+				},
+				{
+					"name": "List Licenses",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/licenses",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"licenses"
+							]
+						},
+						"description": "List organization licenses"
+					},
+					"response": []
+				},
+				{
+					"name": "Create License",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"organization_id\": \"{{organization_id}}\",\n  \"license_type\": \"enterprise\",\n  \"max_users\": 1000,\n  \"max_organizations\": 1,\n  \"expires_at\": \"2025-12-31T23:59:59Z\",\n  \"features\": {\n    \"sso\": true,\n    \"audit_logs\": true,\n    \"api_access\": true,\n    \"custom_roles\": true,\n    \"advanced_security\": true\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/licenses",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"licenses"
+							]
+						},
+						"description": "Create a new license"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Platform Metrics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/metrics?metric_name=active_users&start_date=2025-09-01&end_date=2025-09-03",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"metrics"
+							],
+							"query": [
+								{
+									"key": "metric_name",
+									"value": "active_users"
+								},
+								{
+									"key": "start_date",
+									"value": "2025-09-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2025-09-03"
+								}
+							]
+						},
+						"description": "Get platform metrics"
+					},
+					"response": []
+				},
+				{
+					"name": "List Maintenance Windows",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/maintenance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"maintenance"
+							]
+						},
+						"description": "List maintenance windows"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Maintenance Window",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"System Upgrade\",\n  \"description\": \"Upgrading system components\",\n  \"maintenance_type\": \"update\",\n  \"priority\": \"medium\",\n  \"starts_at\": \"2025-09-10T02:00:00Z\",\n  \"ends_at\": \"2025-09-10T06:00:00Z\",\n  \"estimated_duration_minutes\": 240,\n  \"affected_services\": [\"api\", \"database\"],\n  \"notify_users\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/maintenance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"maintenance"
+							]
+						},
+						"description": "Create maintenance window"
+					},
+					"response": []
+				}
+			],
+			"description": "Administrative endpoints"
+		},
+		{
+			"name": "Audit & Security",
+			"item": [
+				{
+					"name": "List Audit Logs",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/logs?skip=0&limit=10&event_type=authentication&start_date=2025-09-01&end_date=2025-09-03",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"logs"
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "event_type",
+									"value": "authentication"
+								},
+								{
+									"key": "start_date",
+									"value": "2025-09-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2025-09-03"
+								}
+							]
+						},
+						"description": "List audit logs with filtering"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Audit Log",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/logs/{{audit_log_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"logs",
+								"{{audit_log_id}}"
+							]
+						},
+						"description": "Get specific audit log entry"
+					},
+					"response": []
+				},
+				{
+					"name": "Export Audit Logs",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start_date\": \"2025-09-01T00:00:00Z\",\n  \"end_date\": \"2025-09-03T23:59:59Z\",\n  \"event_types\": [\"authentication\", \"user_management\"],\n  \"format\": \"csv\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/logs/export",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"logs",
+								"export"
+							]
+						},
+						"description": "Export audit logs"
+					},
+					"response": []
+				},
+				{
+					"name": "List Security Events",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/security-events?skip=0&limit=10&severity=high&status=new",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"security-events"
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "severity",
+									"value": "high"
+								},
+								{
+									"key": "status",
+									"value": "new"
+								}
+							]
+						},
+						"description": "List security events"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Security Event",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/security-events/{{event_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"security-events",
+								"{{event_id}}"
+							]
+						},
+						"description": "Get specific security event"
+					},
+					"response": []
+				},
+				{
+					"name": "Resolve Security Event",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"resolved\",\n  \"resolution\": \"False positive - verified legitimate user activity\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/security-events/{{event_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"security-events",
+								"{{event_id}}"
+							]
+						},
+						"description": "Resolve security event"
+					},
+					"response": []
+				},
+				{
+					"name": "Generate Compliance Report",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"report_type\": \"access_report\",\n  \"name\": \"Monthly Access Report\",\n  \"description\": \"Monthly user access and activity report\",\n  \"parameters\": {\n    \"start_date\": \"2025-08-01\",\n    \"end_date\": \"2025-08-31\",\n    \"include_failed_attempts\": true\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/compliance/reports",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"audit",
+								"compliance",
+								"reports"
+							]
+						},
+						"description": "Generate compliance report"
+					},
+					"response": []
+				}
+			],
+			"description": "Audit logging and security event endpoints"
+		},
+		{
+			"name": "Operations",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"operations",
+								"health"
+							]
+						},
+						"description": "System health check endpoint"
+					},
+					"response": []
+				},
+				{
+					"name": "API Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"status"
+							]
+						},
+						"description": "API status and available endpoints"
+					},
+					"response": []
+				},
+				{
+					"name": "Database Check",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/db-check",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"operations",
+								"db-check"
+							]
+						},
+						"description": "Database connectivity check"
+					},
+					"response": []
+				},
+				{
+					"name": "Cache Check",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/cache-check",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"operations",
+								"cache-check"
+							]
+						},
+						"description": "Cache system check"
+					},
+					"response": []
+				}
+			],
+			"description": "Operational and monitoring endpoints"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-refresh token if expired",
+					"const accessToken = pm.environment.get('access_token');",
+					"const refreshToken = pm.environment.get('refresh_token');",
+					"const tokenExpiry = pm.environment.get('token_expiry');",
+					"",
+					"if (accessToken && refreshToken && tokenExpiry) {",
+					"    const now = Date.now();",
+					"    const expiry = parseInt(tokenExpiry);",
+					"    ",
+					"    // Refresh token if it expires in the next 5 minutes",
+					"    if (now >= (expiry - 300000)) {",
+					"        console.log('Token expiring soon, attempting refresh...');",
+					"        ",
+					"        const refreshRequest = {",
+					"            url: pm.environment.get('base_url') + '/api/v1/auth/refresh',",
+					"            method: 'POST',",
+					"            header: {",
+					"                'Content-Type': 'application/json'",
+					"            },",
+					"            body: {",
+					"                mode: 'raw',",
+					"                raw: JSON.stringify({",
+					"                    refresh_token: refreshToken",
+					"                })",
+					"            }",
+					"        };",
+					"        ",
+					"        pm.sendRequest(refreshRequest, (err, response) => {",
+					"            if (err) {",
+					"                console.log('Token refresh failed:', err);",
+					"            } else if (response.code === 200) {",
+					"                const data = response.json();",
+					"                pm.environment.set('access_token', data.access_token);",
+					"                pm.environment.set('refresh_token', data.refresh_token);",
+					"                pm.environment.set('token_expiry', Date.now() + (data.expires_in * 1000));",
+					"                console.log('Token refreshed successfully');",
+					"            } else {",
+					"                console.log('Token refresh failed with status:', response.code);",
+					"            }",
+					"        });",
+					"    }",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-save tokens from login responses",
+					"if (pm.response.code === 200) {",
+					"    const responseJson = pm.response.json();",
+					"    ",
+					"    // Save authentication tokens",
+					"    if (responseJson.access_token) {",
+					"        pm.environment.set('access_token', responseJson.access_token);",
+					"        console.log('Access token saved');",
+					"    }",
+					"    ",
+					"    if (responseJson.refresh_token) {",
+					"        pm.environment.set('refresh_token', responseJson.refresh_token);",
+					"        console.log('Refresh token saved');",
+					"    }",
+					"    ",
+					"    if (responseJson.expires_in) {",
+					"        const expiry = Date.now() + (responseJson.expires_in * 1000);",
+					"        pm.environment.set('token_expiry', expiry);",
+					"        console.log('Token expiry set');",
+					"    }",
+					"    ",
+					"    // Save user and organization IDs",
+					"    if (responseJson.user_id) {",
+					"        pm.environment.set('user_id', responseJson.user_id);",
+					"        console.log('User ID saved');",
+					"    }",
+					"    ",
+					"    if (responseJson.organization_id) {",
+					"        pm.environment.set('organization_id', responseJson.organization_id);",
+					"        console.log('Organization ID saved');",
+					"    }",
+					"    ",
+					"    // Save MFA session token if present",
+					"    if (responseJson.mfa_session_token) {",
+					"        pm.environment.set('mfa_session_token', responseJson.mfa_session_token);",
+					"        console.log('MFA session token saved');",
+					"    }",
+					"    ",
+					"    // Save IDs from created resources",
+					"    if (responseJson.id) {",
+					"        const requestName = pm.info.requestName.toLowerCase();",
+					"        if (requestName.includes('role')) {",
+					"            pm.environment.set('role_id', responseJson.id);",
+					"        } else if (requestName.includes('location')) {",
+					"            pm.environment.set('location_id', responseJson.id);",
+					"        } else if (requestName.includes('audit')) {",
+					"            pm.environment.set('audit_log_id', responseJson.id);",
+					"        } else if (requestName.includes('event')) {",
+					"            pm.environment.set('event_id', responseJson.id);",
+					"        }",
+					"    }",
+					"}",
+					"",
+					"// Log response for debugging",
+					"if (pm.response.code >= 400) {",
+					"    console.log('Request failed with status:', pm.response.code);",
+					"    console.log('Response:', pm.response.text());",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+}
+

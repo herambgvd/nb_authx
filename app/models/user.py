@@ -1,118 +1,89 @@
 """
-User model for the AuthX service.
-This module defines the User entity for authentication and user management.
+User model for AuthX authentication system.
+Defines the User database model with authentication and profile fields for async operations.
 """
-from typing import Optional, List
+from sqlalchemy import Boolean, String, DateTime, Text, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
+from typing import Optional
 import uuid
 
-from sqlalchemy import Column, String, Boolean, Text, Integer, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from app.models.base import UUIDBaseModel
 
-from app.models.base import TenantBaseModel
+class User(UUIDBaseModel):
+    """User model for authentication and user management with async support."""
 
-class User(TenantBaseModel):
-    """
-    User model representing a user with authentication and profile information.
-    """
     __tablename__ = "users"
 
-    # Authentication information
-    email = Column(String(255), nullable=False)
-    username = Column(String(255), nullable=True)
-    hashed_password = Column(String(255), nullable=False)
+    # Authentication fields
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Profile information
-    first_name = Column(String(100), nullable=True)
-    last_name = Column(String(100), nullable=True)
-    phone_number = Column(String(50), nullable=True)
-    profile_picture_url = Column(String(255), nullable=True)
+    # Profile fields
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    phone_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
-    # User status
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_verified = Column(Boolean, default=False, nullable=False)
-    is_superadmin = Column(Boolean, default=False, nullable=False)
-    is_org_admin = Column(Boolean, default=False, nullable=False)
-    status = Column(String(50), default="active", nullable=False)  # active, inactive, suspended, pending
-    status_reason = Column(Text, nullable=True)
-    status_changed_at = Column(DateTime, nullable=True)
-    status_changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # Status fields
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # Multi-factor authentication
-    mfa_enabled = Column(Boolean, default=False, nullable=False)
-    mfa_secret = Column(String(255), nullable=True)
-    mfa_type = Column(String(20), default="totp", nullable=True)  # totp, sms, email
+    # Organization relationship
+    organization_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id"),
+        nullable=True,
+        index=True
+    )
 
-    # Security information
-    password_last_changed = Column(DateTime, default=datetime.utcnow, nullable=False)
-    last_login = Column(DateTime, nullable=True)
-    failed_login_attempts = Column(Integer, default=0, nullable=False)
-    account_locked_until = Column(DateTime, nullable=True)
+    # Timestamp fields
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Email verification
-    email_verified = Column(Boolean, default=False, nullable=False)
-    email_verification_token = Column(String(255), nullable=True)
-    email_verification_sent_at = Column(DateTime, nullable=True)
+    # Additional fields
+    bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="UTC")
+    locale: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, default="en")
 
-    # Invite status
-    invited_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    invited_at = Column(DateTime, nullable=True)
-    invitation_accepted_at = Column(DateTime, nullable=True)
-
-    # Customizable settings and preferences
-    settings = Column(JSONB, default={}, nullable=False)
-
-    # Location information
-    default_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"), nullable=True)
+    # Security fields
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mfa_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     organization = relationship("Organization", back_populates="users")
-    default_location = relationship("Location")
-    roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
     devices = relationship("UserDevice", back_populates="user", cascade="all, delete-orphan")
-    status_changed_by_user = relationship("User", foreign_keys=[status_changed_by], remote_side="User.id")
-    invited_by_user = relationship("User", foreign_keys=[invited_by], remote_side="User.id")
-
-    # Table constraints
-    __table_args__ = (
-        # Unique email per organization
-        {"schema": "public"},
-    )
+    audit_logs = relationship("AuditLog", back_populates="user", foreign_keys="AuditLog.user_id")
+    security_events = relationship("SecurityEvent", back_populates="user", foreign_keys="SecurityEvent.user_id")
+    roles = relationship("Role", back_populates="user", foreign_keys="Role.user_id")
 
     def __repr__(self) -> str:
-        return f"<User {self.email}>"
+        return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
 
     @property
     def full_name(self) -> str:
-        """Get the user's full name."""
-        if self.first_name and self.last_name:
-            return f"{self.first_name} {self.last_name}"
-        elif self.first_name:
-            return self.first_name
-        elif self.last_name:
-            return self.last_name
-        return ""
+        """Get user's full name."""
+        return f"{self.first_name} {self.last_name}"
 
-class UserRole(TenantBaseModel):
-    """
-    UserRole model representing the many-to-many relationship between users and roles.
-    """
-    __tablename__ = "user_roles"
+    @property
+    def is_locked(self) -> bool:
+        """Check if user account is currently locked."""
+        if self.locked_until is None:
+            return False
+        return datetime.utcnow() < self.locked_until
 
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False)
+    def lock_account(self, duration_minutes: int = 30):
+        """Lock the user account for specified duration."""
+        from datetime import timedelta
+        self.locked_until = datetime.utcnow() + timedelta(minutes=duration_minutes)
 
-    # Additional attributes for the relationship
-    is_primary = Column(Boolean, default=False, nullable=False)
-    assigned_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    expires_at = Column(DateTime, nullable=True)
-
-    # Relationships
-    user = relationship("User", foreign_keys=[user_id], back_populates="roles")
-    role = relationship("Role", back_populates="users")
-    assigned_by_user = relationship("User", foreign_keys=[assigned_by])
-
-    def __repr__(self) -> str:
-        return f"<UserRole user_id={self.user_id} role_id={self.role_id}>"
+    def unlock_account(self):
+        """Unlock the user account."""
+        self.locked_until = None
+        self.failed_login_attempts = 0

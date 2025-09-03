@@ -1,257 +1,278 @@
 """
-Security utilities for the AuthX service.
-This module provides functions for password hashing, verification, and token generation.
+Security utilities for AuthX.
+Provides password hashing, token generation, and authentication utilities.
 """
-import os
-import base64
-import random
-import string
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Union, Tuple
-from io import BytesIO
-
+from typing import Any, Union, Optional, Dict
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+import secrets
+import string
 import pyotp
 import qrcode
-from jose import jwt
-from passlib.context import CryptContext
+import io
+import base64
+import hashlib
+import hmac
 
 from app.core.config import settings
 
-# Password hashing context
+# Password context for hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def create_access_token(
+    data: dict, expires_delta: Optional[timedelta] = None
+) -> str:
     """
-    Verify that a plain password matches a hashed password.
+    Create an access token for authentication.
 
     Args:
-        plain_password: The plain text password to verify
-        hashed_password: The hashed password to compare against
+        data: Dictionary of data to encode in the token
+        expires_delta: Optional custom expiration time
 
     Returns:
-        bool: True if the password matches, False otherwise
+        str: Encoded JWT token
     """
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password: str) -> str:
-    """
-    Hash a password using bcrypt.
-
-    Args:
-        password: The password to hash
-
-    Returns:
-        str: The hashed password
-    """
-    return pwd_context.hash(password)
-
-def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    """
-    Create a JWT access token.
-
-    Args:
-        subject: The subject of the token, usually the user ID
-        expires_delta: Optional expiration time delta, defaults to settings.ACCESS_TOKEN_EXPIRE_MINUTES
-
-    Returns:
-        str: The JWT token
-    """
+    to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode = {"exp": expire, "sub": str(subject)}
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(subject: Union[str, Any]) -> str:
+def create_refresh_token(data: dict) -> str:
     """
-    Create a JWT refresh token with longer expiration.
+    Create a refresh token for authentication.
 
     Args:
-        subject: The subject of the token, usually the user ID
+        data: Dictionary of data to encode in the token
 
     Returns:
-        str: The JWT refresh token
+        str: Encoded JWT refresh token
     """
+    to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {"exp": expire, "sub": str(subject), "type": "refresh"}
+    to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
+
+def verify_token(token: str) -> Dict[str, Any]:
+    """
+    Verify and decode a JWT token.
+
+    Args:
+        token: JWT token to verify
+
+    Returns:
+        dict: Decoded token payload
+
+    Raises:
+        JWTError: If token is invalid or expired
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        raise JWTError("Token is invalid or expired")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a password against its hash.
+
+    Args:
+        plain_password: Plain text password
+        hashed_password: Hashed password
+
+    Returns:
+        bool: True if password matches, False otherwise
+    """
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    """
+    Hash a password.
+
+    Args:
+        password: Plain text password
+
+    Returns:
+        str: Hashed password
+    """
+    return pwd_context.hash(password)
+
+def generate_password(length: int = 12, include_symbols: bool = True) -> str:
+    """
+    Generate a secure random password.
+
+    Args:
+        length: Length of the password
+        include_symbols: Whether to include symbols
+
+    Returns:
+        str: Generated password
+    """
+    characters = string.ascii_letters + string.digits
+    if include_symbols:
+        characters += "!@#$%^&*"
+
+    password = ''.join(secrets.choice(characters) for _ in range(length))
+    return password
+
+def generate_secure_token(length: int = 32) -> str:
+    """
+    Generate a secure random token.
+
+    Args:
+        length: Length of the token
+
+    Returns:
+        str: URL-safe token
+    """
+    return secrets.token_urlsafe(length)
 
 def generate_mfa_secret() -> str:
     """
-    Generate a secret key for multi-factor authentication.
+    Generate a secret for TOTP MFA.
 
     Returns:
-        str: A random secret key
+        str: Base32 encoded secret
     """
     return pyotp.random_base32()
 
-def generate_password_reset_token(email: str) -> str:
+def generate_mfa_qr_code(secret: str, user_email: str, issuer: str = None) -> str:
     """
-    Generate a password reset token.
+    Generate QR code for MFA setup.
 
     Args:
-        email: The email address of the user
+        secret: TOTP secret
+        user_email: User's email
+        issuer: Issuer name
 
     Returns:
-        str: The password reset token
+        str: Base64 encoded QR code image
     """
-    expire = datetime.utcnow() + timedelta(hours=24)
-    to_encode = {"exp": expire, "sub": email, "type": "reset"}
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    return encoded_jwt
-
-def verify_password_reset_token(token: str) -> Optional[str]:
-    """
-    Verify a password reset token and return the email if valid.
-
-    Args:
-        token: The password reset token
-
-    Returns:
-        Optional[str]: The email address if the token is valid, None otherwise
-    """
-    try:
-        decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        if decoded_token["type"] != "reset":
-            return None
-        return decoded_token["sub"]
-    except jwt.JWTError:
-        return None
-
-def generate_email_verification_token(user_id: str) -> str:
-    """
-    Generate an email verification token.
-
-    Args:
-        user_id: The ID of the user
-
-    Returns:
-        str: The email verification token
-    """
-    expire = datetime.utcnow() + timedelta(days=3)
-    to_encode = {"exp": expire, "sub": str(user_id), "type": "verification"}
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    return encoded_jwt
-
-def verify_email_verification_token(token: str) -> Optional[str]:
-    """
-    Verify an email verification token and return the user ID if valid.
-
-    Args:
-        token: The email verification token
-
-    Returns:
-        Optional[str]: The user ID if the token is valid, None otherwise
-    """
-    try:
-        decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        if decoded_token["type"] != "verification":
-            return None
-        return decoded_token["sub"]
-    except jwt.JWTError:
-        return None
-
-def verify_totp_code(secret: str, code: str) -> bool:
-    """
-    Verify a TOTP code against a secret.
-
-    Args:
-        secret: The TOTP secret
-        code: The code to verify
-
-    Returns:
-        bool: True if the code is valid, False otherwise
-    """
-    totp = pyotp.TOTP(secret)
-    # Allow for some time drift (30 seconds window)
-    return totp.verify(code, valid_window=1)
-
-def generate_totp_uri(secret: str, username: str, issuer: str = "AuthX") -> str:
-    """
-    Generate a TOTP URI for QR code generation.
-
-    Args:
-        secret: The TOTP secret
-        username: The username or email of the user
-        issuer: The name of the service (default: AuthX)
-
-    Returns:
-        str: The TOTP URI
-    """
-    totp = pyotp.TOTP(secret)
-    return totp.provisioning_uri(name=username, issuer_name=issuer)
-
-def generate_totp_qrcode(uri: str) -> str:
-    """
-    Generate a QR code image for TOTP setup.
-
-    Args:
-        uri: The TOTP URI
-
-    Returns:
-        str: Base64-encoded QR code image
-    """
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
+    issuer = issuer or settings.MFA_ISSUER
+    totp_uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=user_email,
+        issuer_name=issuer
     )
-    qr.add_data(uri)
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(totp_uri)
     qr.make(fit=True)
 
     img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    qr_code_data = base64.b64encode(buf.getvalue()).decode()
 
-    buffered = BytesIO()
-    img.save(buffered)
-    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{qr_code_data}"
 
-    return f"data:image/png;base64,{img_str}"
-
-def generate_email_code() -> str:
+def verify_mfa_token(secret: str, token: str, valid_window: int = 1) -> bool:
     """
-    Generate a 6-digit code for email-based MFA.
-
-    Returns:
-        str: 6-digit code
-    """
-    return ''.join(random.choices(string.digits, k=6))
-
-def generate_sms_code() -> str:
-    """
-    Generate a 6-digit code for SMS-based MFA.
-
-    Returns:
-        str: 6-digit code
-    """
-    return ''.join(random.choices(string.digits, k=6))
-
-def verify_email_code(stored_code: str, provided_code: str) -> bool:
-    """
-    Verify an email-based MFA code.
+    Verify TOTP MFA token.
 
     Args:
-        stored_code: The code stored in the database
-        provided_code: The code provided by the user
+        secret: TOTP secret
+        token: Token to verify
+        valid_window: Number of time windows to accept
 
     Returns:
-        bool: True if the codes match, False otherwise
+        bool: True if token is valid
     """
-    return stored_code == provided_code
+    totp = pyotp.TOTP(secret)
+    return totp.verify(token, valid_window=valid_window)
 
-def verify_sms_code(stored_code: str, provided_code: str) -> bool:
+def hash_api_key(api_key: str) -> str:
     """
-    Verify an SMS-based MFA code.
+    Hash an API key for secure storage.
 
     Args:
-        stored_code: The code stored in the database
-        provided_code: The code provided by the user
+        api_key: Plain API key
 
     Returns:
-        bool: True if the codes match, False otherwise
+        str: Hashed API key
     """
-    return stored_code == provided_code
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+def verify_api_key(plain_key: str, hashed_key: str) -> bool:
+    """
+    Verify an API key against its hash.
+
+    Args:
+        plain_key: Plain API key
+        hashed_key: Hashed API key
+
+    Returns:
+        bool: True if key matches
+    """
+    return hmac.compare_digest(hash_api_key(plain_key), hashed_key)
+
+def create_csrf_token() -> str:
+    """
+    Create a CSRF token.
+
+    Returns:
+        str: CSRF token
+    """
+    return secrets.token_urlsafe(32)
+
+def verify_csrf_token(token: str, stored_token: str) -> bool:
+    """
+    Verify CSRF token.
+
+    Args:
+        token: Token to verify
+        stored_token: Stored token
+
+    Returns:
+        bool: True if tokens match
+    """
+    return hmac.compare_digest(token, stored_token)
+
+def generate_verification_code(length: int = 6) -> str:
+    """
+    Generate a numeric verification code.
+
+    Args:
+        length: Length of the code
+
+    Returns:
+        str: Verification code
+    """
+    return ''.join(secrets.choice(string.digits) for _ in range(length))
+
+def create_signature(data: str, secret: str) -> str:
+    """
+    Create HMAC signature for data.
+
+    Args:
+        data: Data to sign
+        secret: Secret key
+
+    Returns:
+        str: Hex signature
+    """
+    return hmac.new(
+        secret.encode(),
+        data.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+def verify_signature(data: str, signature: str, secret: str) -> bool:
+    """
+    Verify HMAC signature.
+
+    Args:
+        data: Original data
+        signature: Signature to verify
+        secret: Secret key
+
+    Returns:
+        bool: True if signature is valid
+    """
+    expected_signature = create_signature(data, secret)
+    return hmac.compare_digest(signature, expected_signature)

@@ -4,9 +4,9 @@ This module provides API endpoints for health checks, metrics, and system operat
 """
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, Response, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, get_current_superadmin
+from app.api.deps import get_async_db, get_current_superuser
 from app.core.infrastructure import (
     check_database_health,
     check_redis_health,
@@ -18,7 +18,7 @@ from app.models.user import User
 router = APIRouter()
 
 @router.get("/health", tags=["Operations"])
-async def health_check(db: Session = Depends(get_db)):
+async def health_check(db: AsyncSession = Depends(get_async_db)):
     """
     Check the health of the service.
     Returns the status of various components.
@@ -48,34 +48,36 @@ async def health_check(db: Session = Depends(get_db)):
     }
 
 @router.get("/health/db", tags=["Operations"])
-async def database_health(db: Session = Depends(get_db)):
-    """
-    Check the health of the database connection.
-    """
+async def database_health(db: AsyncSession = Depends(get_async_db)):
+    """Check database connectivity and performance."""
     return await check_database_health(db)
 
 @router.get("/health/redis", tags=["Operations"])
 async def redis_health():
-    """
-    Check the health of the Redis connection.
-    """
+    """Check Redis connectivity and performance."""
     return await check_redis_health()
 
 @router.get("/metrics", tags=["Operations"])
-async def metrics(request: Request, current_user: User = Depends(get_current_superadmin)):
+async def get_system_metrics(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_superuser)
+):
     """
-    Get Prometheus metrics.
-    Only superadmins can access this endpoint.
+    Get system metrics.
+    Only superusers can access system metrics.
     """
-    return get_metrics()
+    return await get_metrics(db)
+
+@router.get("/ping", tags=["Operations"])
+async def ping():
+    """Simple ping endpoint for basic health checks."""
+    return {"message": "pong", "timestamp": "2023-09-03T12:00:00Z"}
 
 @router.get("/version", tags=["Operations"])
-async def version():
-    """
-    Get the current version of the service.
-    """
+async def get_version():
+    """Get application version information."""
     return {
         "version": settings.VERSION,
         "name": "AuthX",
-        "description": "Authentication and Authorization Microservice"
+        "environment": settings.ENVIRONMENT
     }

@@ -2,168 +2,200 @@
 Location schemas for the AuthX service.
 This module provides Pydantic models for location-related API requests and responses.
 """
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from datetime import datetime
+
+from pydantic import BaseModel, Field, validator
+
 from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema, TenantBaseSchema
 
 # Base Location Schema
 class LocationBase(BaseSchema):
     """Base schema for location data."""
-    name: str
-    code: Optional[str] = None
-    description: Optional[str] = None
-    parent_id: Optional[UUID] = None
-    address_line1: Optional[str] = None
-    address_line2: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    postal_code: Optional[str] = None
-    country: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    contact_name: Optional[str] = None
-    contact_email: Optional[EmailStr] = None
-    contact_phone: Optional[str] = None
-    geo_fencing_enabled: bool = False
-    geo_fencing_radius: Optional[int] = None
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    location_type: str = Field(..., pattern="^(office|warehouse|store|datacenter|remote|other)$")
+    code: Optional[str] = Field(None, min_length=2, max_length=50)
 
-    @model_validator(mode='after')
-    def validate_geo_fencing(self):
-        """Validate that geo-fencing radius is provided if geo-fencing is enabled."""
-        geo_enabled = self.geo_fencing_enabled
-        geo_radius = self.geo_fencing_radius
-        lat = self.latitude
-        lng = self.longitude
+    # Address fields
+    address_line1: Optional[str] = Field(None, max_length=255)
+    address_line2: Optional[str] = Field(None, max_length=255)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    country: Optional[str] = Field(None, max_length=100)
 
-        if geo_enabled:
-            if geo_radius is None:
-                raise ValueError("Geo-fencing radius must be provided when geo-fencing is enabled")
-            if lat is None or lng is None:
-                raise ValueError("Latitude and longitude must be provided when geo-fencing is enabled")
+    # Geographic coordinates
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
 
-        return self
+    # Contact information
+    phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=255)
 
-# Location Create Schema
-class LocationCreate(LocationBase, TenantBaseSchema):
-    """Schema for creating a new location."""
     is_active: bool = True
+    is_primary: bool = False
 
-# Location Update Schema
+class LocationCreate(LocationBase):
+    """Schema for creating a new location."""
+    organization_id: UUID
+    parent_location_id: Optional[UUID] = None
+
 class LocationUpdate(BaseSchema):
     """Schema for updating an existing location."""
-    name: Optional[str] = None
-    code: Optional[str] = None
-    description: Optional[str] = None
-    parent_id: Optional[UUID] = None
-    address_line1: Optional[str] = None
-    address_line2: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    postal_code: Optional[str] = None
-    country: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    contact_name: Optional[str] = None
-    contact_email: Optional[EmailStr] = None
-    contact_phone: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    location_type: Optional[str] = Field(None, pattern="^(office|warehouse|store|datacenter|remote|other)$")
+    code: Optional[str] = Field(None, min_length=2, max_length=50)
+
+    address_line1: Optional[str] = Field(None, max_length=255)
+    address_line2: Optional[str] = Field(None, max_length=255)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    country: Optional[str] = Field(None, max_length=100)
+
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+
+    phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=255)
+
     is_active: Optional[bool] = None
-    geo_fencing_enabled: Optional[bool] = None
-    geo_fencing_radius: Optional[int] = None
+    is_primary: Optional[bool] = None
+    parent_location_id: Optional[UUID] = None
 
-    @model_validator(mode='after')
-    def validate_geo_fencing(self):
-        """Validate geo-fencing settings."""
-        geo_enabled = getattr(self, 'geo_fencing_enabled', None)
-        if geo_enabled is not None and geo_enabled:
-            geo_radius = getattr(self, 'geo_fencing_radius', None)
-            if geo_radius is None:
-                raise ValueError("Geo-fencing radius must be provided when enabling geo-fencing")
-
-        return self
-
-# Location Response Schema
 class LocationResponse(UUIDSchema, LocationBase, TimestampSchema):
     """Schema for location response data."""
     organization_id: UUID
-    is_active: bool
+    parent_location_id: Optional[UUID]
+    user_count: int = 0
+    child_locations: List['LocationResponse'] = Field(default_factory=list)
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "organization_id": "550e8400-e29b-41d4-a716-446655440001",
-                "name": "Headquarters",
-                "code": "HQ-001",
-                "description": "Main company headquarters",
-                "parent_id": None,
-                "address_line1": "123 Main Street",
-                "address_line2": "Suite 500",
-                "city": "San Francisco",
-                "state": "CA",
-                "postal_code": "94105",
-                "country": "United States",
-                "latitude": 37.7749,
-                "longitude": -122.4194,
-                "contact_name": "John Doe",
-                "contact_email": "john.doe@example.com",
-                "contact_phone": "+1234567890",
-                "is_active": True,
-                "geo_fencing_enabled": True,
-                "geo_fencing_radius": 500,
-                "created_at": "2023-01-01T00:00:00Z",
-                "updated_at": "2023-01-01T00:00:00Z"
-            }
-        }
+    @property
+    def full_address(self) -> str:
+        """Get the full formatted address."""
+        parts = []
+        if self.address_line1:
+            parts.append(self.address_line1)
+        if self.address_line2:
+            parts.append(self.address_line2)
+        if self.city:
+            parts.append(self.city)
+        if self.state:
+            parts.append(self.state)
+        if self.postal_code:
+            parts.append(self.postal_code)
+        if self.country:
+            parts.append(self.country)
+        return ", ".join(parts)
 
 # Location List Response Schema
 class LocationListResponse(BaseSchema):
-    """Schema for paginated location response data."""
-    items: List[LocationResponse]
+    """Schema for paginated location list response."""
+    locations: List[LocationResponse]
     total: int
     page: int
-    size: int
+    page_size: int
+    has_next: bool
+    has_prev: bool
 
-# Location Hierarchy Schema
-class LocationHierarchyItem(LocationResponse):
-    """Schema for representing a location in a hierarchy."""
-    children: List[Any] = []
+# Location Hierarchy Schemas
+class LocationHierarchyItem(BaseSchema):
+    """Schema for location hierarchy items."""
+    location_id: UUID
+    location_name: str
+    parent_id: Optional[UUID] = None
+    children: List['LocationHierarchyItem'] = Field(default_factory=list)
+    location_type: str
+    is_active: bool
 
-# Location GeoFence Check Schema
+# GeoFence Schemas
 class GeoFenceCheckRequest(BaseSchema):
-    """Schema for checking if coordinates are within a location's geo-fence."""
-    latitude: float
-    longitude: float
+    """Schema for geofence check requests."""
+    location_id: UUID
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    radius_meters: Optional[int] = Field(100, ge=1, le=10000)
 
 class GeoFenceCheckResponse(BaseSchema):
-    """Schema for geo-fence check response."""
-    inside_fence: bool
-    distance: Optional[float] = None  # Distance in meters from the center
+    """Schema for geofence check response."""
+    location_id: UUID
+    is_within_fence: bool
+    distance_meters: float
+    message: str
 
-# Location Group Schema
+# Location Group Schemas
 class LocationGroupBase(BaseSchema):
     """Base schema for location group data."""
-    name: str
-    description: Optional[str] = None
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
+    is_active: bool = True
 
-class LocationGroupCreate(LocationGroupBase, TenantBaseSchema):
-    """Schema for creating a new location group."""
-    location_ids: List[UUID] = []
+class LocationGroupCreate(BaseSchema):
+    """Schema for creating location groups."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    organization_id: UUID
+    location_ids: List[UUID] = Field(default_factory=list)
 
 class LocationGroupUpdate(BaseSchema):
-    """Schema for updating an existing location group."""
-    name: Optional[str] = None
-    description: Optional[str] = None
+    """Schema for updating location groups."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
     location_ids: Optional[List[UUID]] = None
 
-class LocationGroupResponse(UUIDSchema, LocationGroupBase, TimestampSchema):
-    """Schema for location group response data."""
+class LocationGroupResponse(UUIDSchema, TimestampSchema):
+    """Schema for location group response."""
+    name: str
+    description: Optional[str]
     organization_id: UUID
-    locations: List[LocationResponse] = []
+    locations: List[LocationResponse] = Field(default_factory=list)
+    location_count: int = 0
 
 class LocationGroupListResponse(BaseSchema):
-    """Schema for paginated location group response data."""
-    items: List[LocationGroupResponse]
+    """Schema for paginated location group list response."""
+    groups: List[LocationGroupResponse]
     total: int
     page: int
-    size: int
+    page_size: int
+    has_next: bool
+    has_prev: bool
+
+# Location Assignment Schemas
+class LocationAssignment(BaseSchema):
+    """Schema for assigning users to locations."""
+    user_id: UUID
+    location_id: UUID
+    is_primary: bool = False
+    access_level: str = Field(default="read", pattern="^(read|write|admin)$")
+
+class LocationAssignmentResponse(UUIDSchema, TimestampSchema):
+    """Schema for location assignment response."""
+    user_id: UUID
+    location_id: UUID
+    user_name: str
+    location_name: str
+    is_primary: bool
+    access_level: str
+
+# Location Statistics Schemas
+class LocationStats(BaseSchema):
+    """Schema for location statistics."""
+    total_locations: int = 0
+    active_locations: int = 0
+    inactive_locations: int = 0
+    locations_by_type: Dict[str, int] = Field(default_factory=dict)
+    users_by_location: Dict[str, int] = Field(default_factory=dict)
+
+class LocationStatsResponse(BaseSchema):
+    """Schema for location statistics response."""
+    stats: LocationStats
+    top_locations: List[Dict[str, Any]] = Field(default_factory=list)
+    recent_changes: List[Dict[str, Any]] = Field(default_factory=list)
+
+# Update forward references
+LocationResponse.model_rebuild()
+LocationHierarchyItem.model_rebuild()

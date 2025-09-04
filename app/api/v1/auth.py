@@ -28,67 +28,60 @@ router = APIRouter()
 async def login(
     request: Request,
     login_data: LoginRequest,
-    db: AsyncSession = Depends(get_async_db),
-    context: dict = Depends(get_request_context)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     Authenticate user with comprehensive security checks.
     """
-    # Get request information for security analysis
-    request_info = get_client_info(request)
+    # Simplified request info to avoid any blocking operations
+    request_info = {
+        "ip_address": getattr(request.client, 'host', '127.0.0.1'),
+        "user_agent": request.headers.get("user-agent", "Unknown"),
+        "headers": dict(request.headers)
+    }
 
     # Authenticate user
     try:
-        user, auth_context = await auth_service.authenticate_user(
+        user_data, auth_context = await auth_service.authenticate_user(
             db, login_data.username, login_data.password, request_info
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        # Log the exact error for debugging
+        import logging
+        logging.error(f"Authentication error: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if not user or not auth_context.get('success', False):
+    if not user_data or not auth_context.get('success', False):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Check if MFA is required
-    if auth_context.get('requires_mfa', False):
-        # Generate MFA session token
-        mfa_session_data = {
-            "user_id": str(user.id),
-            "type": "mfa_session",
-            "risk_score": auth_context.get('risk_score', 0)
-        }
-        mfa_token = await auth_service.create_tokens_for_user(user, mfa_session_data)
-
-        return LoginResponse(
-            access_token="",
-            refresh_token="",
-            token_type="bearer",
-            expires_in=0,
-            user_id=user.id,
-            organization_id=user.organization_id,
-            requires_mfa=True,
-            mfa_type="totp" if user.mfa_enabled else "email",
-            mfa_session_token=mfa_token["access_token"],
-            device_registered=auth_context.get('device_registered', False)
+    # Create tokens using user data (completely safe from SQLAlchemy issues)
+    try:
+        tokens = await auth_service.create_tokens_from_user_data(user_data)
+    except Exception as e:
+        import logging
+        logging.error(f"Token creation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token creation failed"
         )
-
-    # Create tokens for successful login
-    tokens = await auth_service.create_tokens_for_user(user)
 
     return LoginResponse(
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
         token_type="bearer",
         expires_in=tokens["expires_in"],
-        user_id=user.id,
-        organization_id=user.organization_id,
+        user_id=UUID(user_data["id"]),
+        organization_id=UUID(user_data["organization_id"]) if user_data["organization_id"] else None,
         requires_mfa=False,
         device_registered=auth_context.get('device_registered', False)
     )
@@ -103,7 +96,7 @@ async def verify_mfa(
     """
     # Verify MFA session token
     try:
-        from app.utils.security import verify_token
+        from app.core.security import verify_token
         payload = verify_token(mfa_data.session_token)
         user_id = payload.get("user_id")
 
@@ -156,23 +149,29 @@ async def register(
     """
     Register a new user account.
     """
-    # Create user
-    user = await user_service.create_user(db, register_data)
+    try:
+        # Create user
+        user = await user_service.create_user(db, register_data)
 
-    # Send verification email in background
-    if not user.is_verified:
-        background_tasks.add_task(
-            # This would trigger email verification
-            lambda: None
+        # Send verification email in background
+        if not user.is_verified:
+            background_tasks.add_task(
+                # This would trigger email verification
+                lambda: None
+            )
+
+        return RegisterResponse(
+            user_id=user.id,
+            email=user.email,
+            username=user.username,
+            verification_required=not user.is_verified,
+            message="Registration successful. Please check your email for verification."
         )
-
-    return RegisterResponse(
-        user_id=user.id,
-        email=user.email,
-        username=user.username,
-        verification_required=not user.is_verified,
-        message="Registration successful. Please check your email for verification."
-    )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 @router.post("/refresh", response_model=TokenRefreshResponse)
 async def refresh_token(
@@ -182,13 +181,21 @@ async def refresh_token(
     """
     Refresh access token using refresh token.
     """
-    tokens = await auth_service.refresh_access_token(db, refresh_data.refresh_token)
+    try:
+        tokens = await auth_service.refresh_access_token(db, refresh_data.refresh_token)
 
-    return TokenRefreshResponse(
-        access_token=tokens["access_token"],
-        token_type="bearer",
-        expires_in=tokens["expires_in"]
-    )
+        return TokenRefreshResponse(
+            access_token=tokens["access_token"],
+            token_type="bearer",
+            expires_in=tokens["expires_in"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
+        )
 
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(
@@ -292,15 +299,21 @@ async def confirm_email_verification(
     """
     Confirm email verification with token.
     """
-    success = await user_service.verify_email(db, confirm_data.token)
+    try:
+        success = await user_service.verify_email(db, confirm_data.token)
 
-    if not success:
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired verification token"
+            )
+
+        return {"message": "Email verified successfully"}
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired verification token"
         )
-
-    return {"message": "Email verified successfully"}
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(

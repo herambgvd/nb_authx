@@ -1,554 +1,362 @@
 """
-Organization API endpoints for the AuthX service.
-This module provides API endpoints for organization management functionality.
+Organization management API endpoints for AuthX.
+Provides comprehensive organization CRUD operations and management functionality with full async support.
 """
-from typing import Optional
-from uuid import UUID
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from typing import Optional, List
+from uuid import UUID
+import logging
 
-from app.api.deps import get_current_user, get_async_db, get_organization_admin, get_current_superuser
+from app.db.session import get_async_db
 from app.models.user import User
-from app.models.organization import Organization
-from app.models.organization_settings import OrganizationSettings
-from app.schemas.organization import (
-    OrganizationCreate,
-    OrganizationUpdate,
-    OrganizationResponse,
-    OrganizationListResponse
-)
-from app.schemas.organization_settings import (
-    OrganizationSettings as OrganizationSettingsSchema,
-    OrganizationSettingsUpdate
-)
+from app.services.organization_service import organization_service
+from app.api.deps import get_current_active_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Create a new organization
-@router.post("", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_organization(
-    *,
+    org_data: dict,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    organization_data: OrganizationCreate
+    current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Create a new organization.
-    This endpoint is typically used by administrators or during the signup process.
-    """
-    # Check if organization with the same domain already exists
-    if organization_data.domain:
-        result = await db.execute(
-            select(Organization).where(Organization.domain == organization_data.domain)
-        )
-        existing_org = result.scalar_one_or_none()
-        if existing_org:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Organization with domain '{organization_data.domain}' already exists"
-            )
+    """Create a new organization with comprehensive validation."""
+    logger.info(f"Creating organization: {org_data.get('name')}")
 
-    # Create new organization
-    new_organization = Organization(**organization_data.dict())
-    db.add(new_organization)
-    await db.commit()
-    await db.refresh(new_organization)
-
-    # Create default organization settings
-    default_settings = OrganizationSettings(organization_id=new_organization.id)
-    db.add(default_settings)
-    await db.commit()
-
-    return new_organization
-
-# Get all organizations (paginated)
-@router.get("", response_model=OrganizationListResponse)
-async def get_organizations(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
-    name: Optional[str] = None,
-    is_active: Optional[bool] = None,
-    is_verified: Optional[bool] = None,
-    subscription_plan: Optional[str] = None
-):
-    """
-    Get a paginated list of organizations with optional filtering.
-    Only superusers can view all organizations.
-    """
-    # Build query
-    query = select(Organization)
-
-    # Apply filters
-    if name:
-        query = query.where(Organization.name.ilike(f"%{name}%"))
-    if is_active is not None:
-        query = query.where(Organization.is_active == is_active)
-    if is_verified is not None:
-        query = query.where(Organization.is_verified == is_verified)
-    if subscription_plan:
-        query = query.where(Organization.subscription_plan == subscription_plan)
-
-    # Get total count
-    total_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(total_query)
-    total = total_result.scalar()
-
-    # Apply pagination
-    query = query.offset(skip).limit(limit)
-    result = await db.execute(query)
-    organizations = result.scalars().all()
-
-    return OrganizationListResponse(
-        organizations=[OrganizationResponse.from_orm(org) for org in organizations],
-        total=total,
-        page=skip // limit + 1,
-        page_size=limit,
-        has_next=skip + limit < total,
-        has_prev=skip > 0
-    )
-
-# Get organization by ID
-@router.get("/{organization_id}", response_model=OrganizationResponse)
-async def get_organization(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    organization_id: UUID
-):
-    """
-    Get detailed information about a specific organization by ID.
-    Users can only view their own organization unless they are superusers.
-    """
-    # Check permissions
-    if not current_user.is_superadmin and current_user.organization_id != organization_id:
+    # Only superusers can create organizations
+    if not current_user.is_superuser:
+        logger.warning(f"Unauthorized organization creation attempt by {current_user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this organization"
+            detail="Only superusers can create organizations"
         )
 
-    # Get organization
-    result = await db.execute(select(Organization).where(Organization.id == organization_id))
-    organization = result.scalar_one_or_none()
+    try:
+        organization = await organization_service.create_organization(
+            db, org_data, current_user.id
+        )
 
-    if not organization:
+        logger.info(f"Organization created successfully: {organization.id}")
+        return {
+            "id": str(organization.id),
+            "name": organization.name,
+            "slug": organization.slug,
+            "description": organization.description,
+            "is_active": organization.is_active,
+            "subscription_tier": organization.subscription_tier,
+            "created_at": organization.created_at.isoformat() if organization.created_at else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Organization creation failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create organization"
         )
 
-    return organization
-
-# Update organization
-@router.patch("/{organization_id}", response_model=OrganizationResponse)
-async def update_organization(
-    *,
+@router.get("/")
+async def list_organizations(
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    organization_id: UUID,
-    organization_data: OrganizationUpdate
+    current_user: User = Depends(get_current_active_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    search: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None)
 ):
-    """
-    Update an organization's details.
-    Users can only update their own organization unless they are superadmins.
-    Some fields may only be updated by superadmins.
-    """
-    # Get organization
-    result = await db.execute(select(Organization).where(Organization.id == organization_id))
-    organization = result.scalar_one_or_none()
+    """List organizations with filtering and pagination."""
+    logger.info(f"Listing organizations - skip: {skip}, limit: {limit}")
 
-    if not organization:
+    # Only superusers can list all organizations
+    if not current_user.is_superuser:
+        logger.warning(f"Unauthorized organization list attempt by {current_user.id}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can list organizations"
         )
 
-    # Check permissions
-    is_own_org = current_user.organization_id == organization_id
-    if not current_user.is_superadmin and not is_own_org:
+    try:
+        organizations, total = await organization_service.list_organizations(
+            db, skip=skip, limit=limit, search=search, is_active=is_active
+        )
+
+        logger.info(f"Retrieved {len(organizations)} organizations out of {total} total")
+        return {
+            "organizations": [
+                {
+                    "id": str(org.id),
+                    "name": org.name,
+                    "slug": org.slug,
+                    "description": org.description,
+                    "is_active": org.is_active,
+                    "subscription_tier": org.subscription_tier,
+                    "max_users": org.max_users,
+                    "max_locations": org.max_locations,
+                    "created_at": org.created_at.isoformat() if org.created_at else None
+                }
+                for org in organizations
+            ],
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to list organizations: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve organizations"
+        )
+
+@router.get("/{org_id}")
+async def get_organization(
+    org_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get organization by ID."""
+    logger.info(f"Retrieving organization: {org_id}")
+
+    # Check access permissions
+    if not current_user.is_superuser and str(current_user.organization_id) != str(org_id):
+        logger.warning(f"Unauthorized organization access attempt by {current_user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this organization"
+        )
+
+    try:
+        organization = await organization_service.get_organization_by_id(db, org_id)
+        if not organization:
+            logger.warning(f"Organization not found: {org_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found"
+            )
+
+        logger.info(f"Organization retrieved successfully: {organization.name}")
+        return {
+            "id": str(organization.id),
+            "name": organization.name,
+            "slug": organization.slug,
+            "description": organization.description,
+            "email": organization.email,
+            "phone": organization.phone,
+            "website": organization.website,
+            "address_line1": organization.address_line1,
+            "address_line2": organization.address_line2,
+            "city": organization.city,
+            "state": organization.state,
+            "postal_code": organization.postal_code,
+            "country": organization.country,
+            "is_active": organization.is_active,
+            "max_users": organization.max_users,
+            "max_locations": organization.max_locations,
+            "subscription_tier": organization.subscription_tier,
+            "billing_email": organization.billing_email,
+            "logo_url": organization.logo_url,
+            "created_at": organization.created_at.isoformat() if organization.created_at else None,
+            "updated_at": organization.updated_at.isoformat() if organization.updated_at else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve organization {org_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve organization"
+        )
+
+@router.put("/{org_id}")
+async def update_organization(
+    org_id: UUID,
+    org_update: dict,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update organization information."""
+    logger.info(f"Updating organization: {org_id}")
+
+    # Check access permissions
+    if not current_user.is_superuser and str(current_user.organization_id) != str(org_id):
+        logger.warning(f"Unauthorized organization update attempt by {current_user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this organization"
         )
 
-    # Regular org admins can only update certain fields
-    if not current_user.is_superadmin and is_own_org:
-        restricted_fields = ["is_verified", "subscription_plan", "verification_status",
-                            "data_isolation_level", "subscription_start_date", "subscription_end_date"]
-        for field in restricted_fields:
-            if getattr(organization_data, field, None) is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Not authorized to update the '{field}' field"
-                )
-
-    # Check domain uniqueness if updating domain
-    if organization_data.domain and organization_data.domain != organization.domain:
-        result = await db.execute(
-            select(Organization).where(
-                Organization.domain == organization_data.domain,
-                Organization.id != organization_id
-            )
+    try:
+        updated_org = await organization_service.update_organization(
+            db, org_id, org_update, current_user.id
         )
-        existing_org = result.scalar_one_or_none()
-        if existing_org:
+
+        if not updated_org:
+            logger.warning(f"Organization not found for update: {org_id}")
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Organization with domain '{organization_data.domain}' already exists"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found"
             )
 
-    # Update organization with provided data
-    update_data = organization_data.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(organization, key, value)
+        logger.info(f"Organization updated successfully: {org_id}")
+        return {
+            "id": str(updated_org.id),
+            "name": updated_org.name,
+            "slug": updated_org.slug,
+            "description": updated_org.description,
+            "is_active": updated_org.is_active,
+            "updated_at": updated_org.updated_at.isoformat() if updated_org.updated_at else None
+        }
 
-    await db.commit()
-    await db.refresh(organization)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update organization {org_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update organization"
+        )
 
-    return organization
+@router.post("/{org_id}/activate")
+async def activate_organization(
+    org_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Activate organization."""
+    logger.info(f"Activating organization: {org_id}")
 
-# Delete organization
-@router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
+    if not current_user.is_superuser:
+        logger.warning(f"Unauthorized organization activation attempt by {current_user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can activate organizations"
+        )
+
+    try:
+        success = await organization_service.activate_organization(db, org_id)
+        if not success:
+            logger.warning(f"Organization not found for activation: {org_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found"
+            )
+
+        logger.info(f"Organization activated successfully: {org_id}")
+        return {"message": "Organization activated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to activate organization {org_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to activate organization"
+        )
+
+@router.post("/{org_id}/deactivate")
+async def deactivate_organization(
+    org_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Deactivate organization."""
+    logger.info(f"Deactivating organization: {org_id}")
+
+    if not current_user.is_superuser:
+        logger.warning(f"Unauthorized organization deactivation attempt by {current_user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can deactivate organizations"
+        )
+
+    try:
+        success = await organization_service.deactivate_organization(db, org_id)
+        if not success:
+            logger.warning(f"Organization not found for deactivation: {org_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found"
+            )
+
+        logger.info(f"Organization deactivated successfully: {org_id}")
+        return {"message": "Organization deactivated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to deactivate organization {org_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate organization"
+        )
+
+@router.delete("/{org_id}")
 async def delete_organization(
-    *,
+    org_id: UUID,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    organization_id: UUID
+    current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Delete an organization.
-    Only superadmins can delete organizations.
-    """
-    # Get organization
-    result = await db.execute(select(Organization).where(Organization.id == organization_id))
-    organization = result.scalar_one_or_none()
+    """Delete organization (soft delete)."""
+    logger.info(f"Deleting organization: {org_id}")
 
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
-        )
-
-    # Delete organization (and all related entities through cascade)
-    await db.delete(organization)
-    await db.commit()
-
-    return None
-
-# Organization verification workflow
-@router.post("/{organization_id}/verification/request", response_model=OrganizationResponse)
-async def request_verification(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_organization_admin),
-    organization_id: UUID,
-    verification_method: str = Body(..., embed=True)
-):
-    """
-    Request organization verification.
-    Organization admins can request verification for their organization.
-    """
-    # Check if user belongs to the organization
-    if current_user.organization_id != organization_id and not current_user.is_superadmin:
+    if not current_user.is_superuser:
+        logger.warning(f"Unauthorized organization deletion attempt by {current_user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized for this organization"
+            detail="Only superusers can delete organizations"
         )
 
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    try:
+        success = await organization_service.delete_organization(db, org_id)
+        if not success:
+            logger.warning(f"Organization not found for deletion: {org_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found"
+            )
 
-    if not organization:
+        logger.info(f"Organization deleted successfully: {org_id}")
+        return {"message": "Organization deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete organization {org_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete organization"
         )
 
-    # Validate verification method
-    valid_methods = ["domain", "document", "phone", "email"]
-    if verification_method not in valid_methods:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid verification method. Must be one of: {', '.join(valid_methods)}"
-        )
-
-    # Update verification status and method
-    organization.verification_status = "requested"
-    organization.verification_method = verification_method
-    await db.commit()
-    await db.refresh(organization)
-
-    # Here we would typically initiate the verification process based on the method
-    # For example, sending a verification email, initiating a document review, etc.
-
-    return organization
-
-@router.post("/{organization_id}/verification/approve", response_model=OrganizationResponse)
-async def approve_verification(
-    *,
+@router.get("/{org_id}/stats")
+async def get_organization_stats(
+    org_id: UUID,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    organization_id: UUID
+    current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Approve organization verification.
-    Only superadmins can approve verification requests.
-    """
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    """Get organization statistics."""
+    logger.info(f"Getting stats for organization: {org_id}")
 
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
-        )
-
-    # Update verification status
-    organization.verification_status = "approved"
-    organization.is_verified = True
-    organization.verification_date = datetime.now().strftime("%Y-%m-%d")
-    await db.commit()
-    await db.refresh(organization)
-
-    return organization
-
-@router.post("/{organization_id}/verification/reject", response_model=OrganizationResponse)
-async def reject_verification(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    organization_id: UUID,
-    reason: str = Body(..., embed=True)
-):
-    """
-    Reject organization verification.
-    Only superadmins can reject verification requests.
-    """
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
-
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
-        )
-
-    # Update verification status
-    organization.verification_status = "rejected"
-    organization.is_verified = False
-    await db.commit()
-    await db.refresh(organization)
-
-    # Here we would typically notify the organization about the rejection
-
-    return organization
-
-# Subscription management
-@router.post("/{organization_id}/subscription", response_model=OrganizationResponse)
-async def update_subscription(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    organization_id: UUID,
-    subscription_plan: str = Body(...),
-    start_date: Optional[str] = Body(None),
-    end_date: Optional[str] = Body(None)
-):
-    """
-    Update an organization's subscription plan.
-    Only superadmins can update subscription plans.
-    """
-    # Validate subscription plan
-    valid_plans = ["free", "basic", "premium", "enterprise"]
-    if subscription_plan not in valid_plans:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid subscription plan. Must be one of: {', '.join(valid_plans)}"
-        )
-
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
-
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
-        )
-
-    # Update subscription plan and dates
-    organization.subscription_plan = subscription_plan
-    if start_date:
-        organization.subscription_start_date = start_date
-    if end_date:
-        organization.subscription_end_date = end_date
-
-    await db.commit()
-    await db.refresh(organization)
-
-    return organization
-
-# Organization settings management
-@router.get("/{organization_id}/settings", response_model=OrganizationSettingsSchema)
-async def get_organization_settings(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    organization_id: UUID
-):
-    """
-    Get an organization's settings.
-    Users can only access settings for their own organization unless they are superadmins.
-    """
-    # Check permissions
-    if not current_user.is_superadmin and current_user.organization_id != organization_id:
+    # Check access permissions
+    if not current_user.is_superuser and str(current_user.organization_id) != str(org_id):
+        logger.warning(f"Unauthorized organization stats access attempt by {current_user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this organization's settings"
+            detail="Not authorized to access this organization's stats"
         )
 
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    try:
+        stats = await organization_service.get_organization_stats(db, org_id)
 
-    if not organization:
+        logger.info(f"Organization stats retrieved successfully: {org_id}")
+        return stats
+
+    except Exception as e:
+        logger.error(f"Failed to get organization stats {org_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve organization statistics"
         )
-
-    # Get or create settings
-    settings = db.query(OrganizationSettings).filter(
-        OrganizationSettings.organization_id == organization_id
-    ).first()
-
-    if not settings:
-        settings = OrganizationSettings(organization_id=organization_id)
-        db.add(settings)
-        await db.commit()
-        await db.refresh(settings)
-
-    # Convert database model to schema
-    return OrganizationSettingsSchema(
-        security=settings.security_settings,
-        branding=settings.branding_settings,
-        notifications=settings.notification_settings,
-        integrations=settings.integration_settings,
-        custom_settings=settings.custom_settings
-    )
-
-@router.patch("/{organization_id}/settings", response_model=OrganizationSettingsSchema)
-async def update_organization_settings(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    organization_id: UUID,
-    settings_data: OrganizationSettingsUpdate
-):
-    """
-    Update an organization's settings.
-    Users can only update settings for their own organization unless they are superadmins.
-    """
-    # Check permissions
-    if not current_user.is_superadmin and current_user.organization_id != organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this organization's settings"
-        )
-
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
-
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
-        )
-
-    # Get or create settings
-    settings = db.query(OrganizationSettings).filter(
-        OrganizationSettings.organization_id == organization_id
-    ).first()
-
-    if not settings:
-        settings = OrganizationSettings(organization_id=organization_id)
-        db.add(settings)
-
-    # Update settings with provided data
-    update_data = settings_data.dict(exclude_unset=True)
-
-    if "security" in update_data and update_data["security"]:
-        if not settings.security_settings:
-            settings.security_settings = {}
-        settings.security_settings.update(update_data["security"].dict(exclude_unset=True))
-
-    if "branding" in update_data and update_data["branding"]:
-        if not settings.branding_settings:
-            settings.branding_settings = {}
-        settings.branding_settings.update(update_data["branding"].dict(exclude_unset=True))
-
-    if "notifications" in update_data and update_data["notifications"]:
-        if not settings.notification_settings:
-            settings.notification_settings = {}
-        settings.notification_settings.update(update_data["notifications"].dict(exclude_unset=True))
-
-    if "integrations" in update_data and update_data["integrations"]:
-        if not settings.integration_settings:
-            settings.integration_settings = {}
-        settings.integration_settings.update(update_data["integrations"].dict(exclude_unset=True))
-
-    if "custom_settings" in update_data and update_data["custom_settings"]:
-        if not settings.custom_settings:
-            settings.custom_settings = {}
-        settings.custom_settings.update(update_data["custom_settings"])
-
-    await db.commit()
-    await db.refresh(settings)
-
-    # Convert database model to schema
-    return OrganizationSettingsSchema(
-        security=settings.security_settings,
-        branding=settings.branding_settings,
-        notifications=settings.notification_settings,
-        integrations=settings.integration_settings,
-        custom_settings=settings.custom_settings
-    )
-
-# Data isolation level management
-@router.post("/{organization_id}/data-isolation", response_model=OrganizationResponse)
-async def update_data_isolation(
-    *,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser),
-    organization_id: UUID,
-    isolation_level: str = Body(..., embed=True)
-):
-    """
-    Update an organization's data isolation level.
-    Only superadmins can update data isolation levels.
-    """
-    # Validate isolation level
-    valid_levels = ["strict", "shared", "hybrid"]
-    if isolation_level not in valid_levels:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid isolation level. Must be one of: {', '.join(valid_levels)}"
-        )
-
-    # Get organization
-    organization = db.query(Organization).filter(Organization.id == organization_id).first()
-
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
-        )
-
-    # Update isolation level
-    organization.data_isolation_level = isolation_level
-    await db.commit()
-    await db.refresh(organization)
-
-    return organization

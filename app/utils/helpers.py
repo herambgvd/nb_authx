@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union, Callable
 from functools import wraps
 import logging
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
@@ -49,71 +50,120 @@ def format_datetime(dt: datetime, format_str: str = "%Y-%m-%d %H:%M:%S") -> str:
 
 def parse_datetime(date_str: str) -> Optional[datetime]:
     """Parse datetime from ISO string."""
-    if not date_str:
+    try:
+        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
         return None
 
+def get_client_info(request: Request) -> Dict[str, Any]:
+    """
+    Extract client information from request for security analysis.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        Dictionary containing client information
+    """
+    # Get client IP address
+    ip_address = "unknown"
+    if request.client:
+        ip_address = request.client.host
+
+    # Check for forwarded headers (for proxy/load balancer scenarios)
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        # Take the first IP in the chain
+        ip_address = forwarded_for.split(",")[0].strip()
+
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        ip_address = real_ip
+
+    # Extract other useful information
+    user_agent = request.headers.get("user-agent", "unknown")
+    accept_language = request.headers.get("accept-language", "")
+    referer = request.headers.get("referer", "")
+
+    return {
+        "ip_address": ip_address,
+        "user_agent": user_agent,
+        "accept_language": accept_language,
+        "referer": referer,
+        "method": request.method,
+        "url": str(request.url),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+def mask_sensitive_data(data: Dict[str, Any], sensitive_keys: List[str] = None) -> Dict[str, Any]:
+    """
+    Mask sensitive data in dictionary for logging/audit purposes.
+
+    Args:
+        data: Dictionary to mask
+        sensitive_keys: List of keys to mask (default: common sensitive keys)
+
+    Returns:
+        Dictionary with sensitive values masked
+    """
+    if sensitive_keys is None:
+        sensitive_keys = [
+            "password", "token", "secret", "key", "credential",
+            "authorization", "cookie", "session"
+        ]
+
+    masked_data = data.copy()
+
+    for key, value in masked_data.items():
+        if any(sensitive in key.lower() for sensitive in sensitive_keys):
+            if isinstance(value, str) and len(value) > 4:
+                masked_data[key] = value[:2] + "*" * (len(value) - 4) + value[-2:]
+            else:
+                masked_data[key] = "***"
+
+    return masked_data
+
+def validate_uuid(uuid_string: str) -> bool:
+    """
+    Validate if string is a valid UUID.
+
+    Args:
+        uuid_string: String to validate
+
+    Returns:
+        True if valid UUID
+    """
     try:
-        # Try parsing ISO format with timezone
-        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-    except ValueError:
-        try:
-            # Try parsing without timezone
-            return datetime.fromisoformat(date_str)
-        except ValueError:
-            try:
-                # Try parsing standard format
-                return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                logger.warning(f"Could not parse datetime: {date_str}")
-                return None
+        uuid.UUID(uuid_string)
+        return True
+    except (ValueError, TypeError):
+        return False
 
-def get_utc_now() -> datetime:
-    """Get current UTC datetime."""
-    return datetime.now(timezone.utc)
+def truncate_string(text: str, max_length: int = 255, suffix: str = "...") -> str:
+    """
+    Truncate string to maximum length with suffix.
 
-# Fixed function name reference
-def utc_now() -> datetime:
-    """Alias for get_utc_now for backward compatibility."""
-    return get_utc_now()
+    Args:
+        text: Text to truncate
+        max_length: Maximum length
+        suffix: Suffix to add if truncated
 
-def deep_merge_dicts(dict1: Dict, dict2: Dict) -> Dict:
-    """Deep merge two dictionaries."""
-    result = dict1.copy()
-    for key, value in dict2.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge_dicts(result[key], value)
-        else:
-            result[key] = value
-    return result
+    Returns:
+        Truncated string
+    """
+    if not text or len(text) <= max_length:
+        return text
 
-def flatten_dict(d: Dict, parent_key: str = '', sep: str = '.') -> Dict:
-    """Flatten nested dictionary."""
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
+    return text[:max_length - len(suffix)] + suffix
 
-def chunk_list(lst: List, chunk_size: int) -> List[List]:
-    """Split list into chunks of specified size."""
-    return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
+def retry_async(max_attempts: int = 3, delay: float = 1.0):
+    """
+    Decorator for retrying async functions.
 
-def remove_none_values(d: Dict) -> Dict:
-    """Remove None values from dictionary."""
-    return {k: v for k, v in d.items() if v is not None}
-
-def mask_sensitive_value(value: str, mask_char: str = "*", visible_chars: int = 4) -> str:
-    """Mask sensitive values for logging."""
-    if not value or len(value) <= visible_chars:
-        return mask_char * len(value) if value else ""
-
-    return value[:visible_chars] + mask_char * (len(value) - visible_chars)
-
-def retry_async(max_attempts: int = 3, delay: float = 1.0, backoff_factor: float = 2.0):
-    """Decorator for retrying async functions with exponential backoff."""
+    Args:
+        max_attempts: Maximum number of attempts
+        delay: Delay between attempts in seconds
+    """
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -125,146 +175,39 @@ def retry_async(max_attempts: int = 3, delay: float = 1.0, backoff_factor: float
                 except Exception as e:
                     last_exception = e
                     if attempt < max_attempts - 1:
-                        wait_time = delay * (backoff_factor ** attempt)
-                        logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {e}. Retrying in {wait_time}s...")
-                        await asyncio.sleep(wait_time)
+                        await asyncio.sleep(delay * (attempt + 1))
+                        logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {e}")
                     else:
-                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}")
+                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}: {e}")
 
             raise last_exception
+
         return wrapper
     return decorator
 
-def batch_process(items: List, batch_size: int = 100):
-    """Process items in batches."""
-    for i in range(0, len(items), batch_size):
-        yield items[i:i + batch_size]
+def paginate_query_params(
+    page: int = 1,
+    size: int = 20,
+    max_size: int = 100
+) -> Dict[str, int]:
+    """
+    Validate and normalize pagination parameters.
 
-def calculate_pagination(total: int, page: int, page_size: int) -> Dict[str, Any]:
-    """Calculate pagination metadata."""
-    total_pages = (total + page_size - 1) // page_size
-    has_prev = page > 1
-    has_next = page < total_pages
+    Args:
+        page: Page number (1-based)
+        size: Page size
+        max_size: Maximum allowed page size
 
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": total_pages,
-        "has_prev": has_prev,
-        "has_next": has_next,
-        "prev_page": page - 1 if has_prev else None,
-        "next_page": page + 1 if has_next else None
-    }
-
-def normalize_search_term(term: str) -> str:
-    """Normalize search term for consistent searching."""
-    return term.strip().lower() if term else ""
-
-def extract_domain_from_email(email: str) -> str:
-    """Extract domain from email address."""
-    try:
-        return email.split('@')[1].lower()
-    except (IndexError, AttributeError):
-        return ""
-
-def is_valid_uuid(uuid_string: str) -> bool:
-    """Check if string is a valid UUID."""
-    try:
-        uuid.UUID(uuid_string)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-def format_file_size(size_bytes: int) -> str:
-    """Format file size in human readable format."""
-    if size_bytes == 0:
-        return "0 B"
-
-    size_names = ["B", "KB", "MB", "GB", "TB"]
-    import math
-    i = int(math.floor(math.log(size_bytes, 1024)))
-    p = math.pow(1024, i)
-    s = round(size_bytes / p, 2)
-    return f"{s} {size_names[i]}"
-
-def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
-    """Truncate text to specified length."""
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - len(suffix)] + suffix
-
-def get_client_info(request) -> Dict[str, Any]:
-    """Extract client information from request."""
-    headers = dict(request.headers)
-
-    return {
-        "ip_address": getattr(request.client, 'host', 'unknown') if request.client else 'unknown',
-        "user_agent": headers.get("user-agent", ""),
-        "accept_language": headers.get("accept-language", ""),
-        "referer": headers.get("referer", ""),
-        "x_forwarded_for": headers.get("x-forwarded-for", ""),
-        "x_real_ip": headers.get("x-real-ip", ""),
-        "timestamp": get_utc_now().isoformat()
-    }
-
-def clean_dict_for_logging(data: Dict[str, Any], sensitive_keys: List[str] = None) -> Dict[str, Any]:
-    """Clean dictionary for safe logging by masking sensitive data."""
-    if sensitive_keys is None:
-        sensitive_keys = ["password", "token", "secret", "key", "authorization"]
-
-    cleaned = {}
-    for key, value in data.items():
-        if any(sensitive_key in key.lower() for sensitive_key in sensitive_keys):
-            cleaned[key] = mask_sensitive_value(str(value)) if value else None
-        elif isinstance(value, dict):
-            cleaned[key] = clean_dict_for_logging(value, sensitive_keys)
-        else:
-            cleaned[key] = value
-
-    return cleaned
-
-def is_valid_email(email: str) -> bool:
-    """Check if email format is valid."""
-    import re
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
-
-def is_valid_phone(phone: str) -> bool:
-    """Check if phone number format is valid."""
-    import re
-    # Basic phone validation - digits, spaces, dashes, parentheses, plus
-    pattern = r'^\+?[\d\s\-\(\)]{10,}$'
-    return bool(re.match(pattern, phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')))
-
-def sanitize_string(value: str, max_length: int = None) -> str:
-    """Sanitize string input by removing dangerous characters."""
-    if not value:
-        return ""
-
-    # Remove null bytes and other dangerous characters
-    sanitized = value.replace('\x00', '').replace('\r', '').replace('\n', ' ')
-
-    # Trim whitespace
-    sanitized = sanitized.strip()
-
-    # Limit length if specified
-    if max_length and len(sanitized) > max_length:
-        sanitized = sanitized[:max_length]
-
-    return sanitized
-
-def mask_sensitive_data(data: str, visible_chars: int = 4) -> str:
-    """Mask sensitive data leaving only specified number of characters visible."""
-    if not data or len(data) <= visible_chars:
-        return "*" * len(data) if data else ""
-
-    return data[:visible_chars] + "*" * (len(data) - visible_chars)
-
-def paginate_query_params(page: int = 1, size: int = 10, max_size: int = 100) -> Dict[str, int]:
-    """Calculate pagination parameters."""
+    Returns:
+        Dictionary with normalized pagination parameters
+    """
+    # Validate and normalize page
     page = max(1, page)
+
+    # Validate and normalize size
     size = max(1, min(size, max_size))
+
+    # Calculate offset
     offset = (page - 1) * size
 
     return {
@@ -274,118 +217,223 @@ def paginate_query_params(page: int = 1, size: int = 10, max_size: int = 100) ->
         "limit": size
     }
 
-def create_pagination_response(items: List[Any], total: int, page: int, size: int) -> Dict[str, Any]:
-    """Create standardized pagination response."""
-    total_pages = (total + size - 1) // size  # Ceiling division
+def utc_now() -> datetime:
+    """Get current UTC datetime."""
+    return datetime.utcnow()
 
-    return {
-        "items": items,
-        "pagination": {
-            "page": page,
-            "size": size,
-            "total": total,
-            "total_pages": total_pages,
-            "has_next": page < total_pages,
-            "has_previous": page > 1
-        }
-    }
+def deep_merge_dicts(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deep merge two dictionaries.
 
-def validate_password_strength(password: str) -> Dict[str, Any]:
-    """Validate password strength against requirements."""
-    from app.core.config import settings
+    Args:
+        dict1: First dictionary
+        dict2: Second dictionary (takes precedence)
 
-    issues = []
-    score = 0
+    Returns:
+        Merged dictionary
+    """
+    result = dict1.copy()
 
-    # Length check
-    if len(password) < settings.PASSWORD_MIN_LENGTH:
-        issues.append(f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters long")
-    else:
-        score += 1
-
-    # Uppercase check
-    if settings.PASSWORD_REQUIRE_UPPERCASE and not any(c.isupper() for c in password):
-        issues.append("Password must contain at least one uppercase letter")
-    else:
-        score += 1
-
-    # Lowercase check
-    if settings.PASSWORD_REQUIRE_LOWERCASE and not any(c.islower() for c in password):
-        issues.append("Password must contain at least one lowercase letter")
-    else:
-        score += 1
-
-    # Digit check
-    if settings.PASSWORD_REQUIRE_DIGITS and not any(c.isdigit() for c in password):
-        issues.append("Password must contain at least one number")
-    else:
-        score += 1
-
-    # Special character check
-    if settings.PASSWORD_REQUIRE_SPECIAL:
-        special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
-        if not any(c in special_chars for c in password):
-            issues.append("Password must contain at least one special character")
+    for key, value in dict2.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge_dicts(result[key], value)
         else:
-            score += 1
+            result[key] = value
 
-    strength_levels = ["Very Weak", "Weak", "Fair", "Good", "Strong"]
-    strength = strength_levels[min(score, len(strength_levels) - 1)]
+    return result
+
+def flatten_dict(nested_dict: Dict[str, Any], separator: str = '_') -> Dict[str, Any]:
+    """
+    Flatten a nested dictionary.
+
+    Args:
+        nested_dict: Dictionary to flatten
+        separator: Separator for nested keys
+
+    Returns:
+        Flattened dictionary
+    """
+    def _flatten(obj, parent_key='', sep=separator):
+        items = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                if isinstance(v, dict):
+                    items.extend(_flatten(v, new_key, sep=sep).items())
+                else:
+                    items.append((new_key, v))
+        return dict(items)
+
+    return _flatten(nested_dict)
+
+def chunk_list(lst: List[Any], chunk_size: int) -> List[List[Any]]:
+    """
+    Split a list into chunks of specified size.
+
+    Args:
+        lst: List to chunk
+        chunk_size: Size of each chunk
+
+    Returns:
+        List of chunks
+    """
+    return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
+
+def remove_none_values(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove None values from dictionary.
+
+    Args:
+        data: Dictionary to clean
+
+    Returns:
+        Dictionary without None values
+    """
+    return {k: v for k, v in data.items() if v is not None}
+
+def mask_sensitive_value(value: str, show_chars: int = 4) -> str:
+    """
+    Mask a sensitive value showing only first and last characters.
+
+    Args:
+        value: Value to mask
+        show_chars: Number of characters to show at start/end
+
+    Returns:
+        Masked value
+    """
+    if not value or len(value) <= show_chars * 2:
+        return "*" * len(value) if value else ""
+
+    return value[:show_chars] + "*" * (len(value) - show_chars * 2) + value[-show_chars:]
+
+def batch_process(items: List[Any], batch_size: int = 100) -> List[List[Any]]:
+    """
+    Process items in batches.
+
+    Args:
+        items: Items to process
+        batch_size: Size of each batch
+
+    Returns:
+        List of batches
+    """
+    return chunk_list(items, batch_size)
+
+def calculate_pagination(total: int, page: int = 1, size: int = 20) -> Dict[str, Any]:
+    """
+    Calculate pagination metadata.
+
+    Args:
+        total: Total number of items
+        page: Current page number
+        size: Items per page
+
+    Returns:
+        Pagination metadata
+    """
+    total_pages = max(1, (total + size - 1) // size)
+    has_next = page < total_pages
+    has_prev = page > 1
 
     return {
-        "is_valid": len(issues) == 0,
-        "issues": issues,
-        "strength": strength,
-        "score": score
+        "total": total,
+        "page": page,
+        "size": size,
+        "total_pages": total_pages,
+        "has_next": has_next,
+        "has_prev": has_prev,
+        "offset": (page - 1) * size
     }
 
-def generate_random_string(length: int = 32, include_special: bool = False) -> str:
-    """Generate a random string of specified length."""
-    import random
-    import string
+def normalize_search_term(term: str) -> str:
+    """
+    Normalize search term for consistent searching.
 
-    chars = string.ascii_letters + string.digits
-    if include_special:
-        chars += "!@#$%^&*"
+    Args:
+        term: Search term to normalize
 
-    return ''.join(random.choice(chars) for _ in range(length))
+    Returns:
+        Normalized search term
+    """
+    if not term:
+        return ""
 
-def hash_string(value: str, salt: str = "") -> str:
-    """Hash a string with optional salt."""
-    import hashlib
-    return hashlib.sha256((value + salt).encode()).hexdigest()
+    return term.strip().lower()
 
-def clean_dict(data: Dict[str, Any], remove_none: bool = True, remove_empty: bool = False) -> Dict[str, Any]:
-    """Clean dictionary by removing None/empty values."""
-    cleaned = {}
+def extract_domain_from_email(email: str) -> str:
+    """
+    Extract domain from email address.
 
-    for key, value in data.items():
-        if remove_none and value is None:
-            continue
-        if remove_empty and value == "":
-            continue
-        if isinstance(value, dict):
-            cleaned_value = clean_dict(value, remove_none, remove_empty)
-            if cleaned_value:  # Only include non-empty dicts
-                cleaned[key] = cleaned_value
-        else:
-            cleaned[key] = value
+    Args:
+        email: Email address
 
-    return cleaned
+    Returns:
+        Domain part of email
+    """
+    if not email or "@" not in email:
+        return ""
 
-def get_client_info(request) -> Dict[str, Any]:
-    """Extract client information from request."""
-    headers = dict(request.headers)
+    return email.split("@")[-1].lower()
 
-    return {
-        "ip_address": getattr(request.client, 'host', 'unknown') if request.client else 'unknown',
-        "user_agent": headers.get("user-agent", ""),
-        "accept_language": headers.get("accept-language", ""),
-        "referer": headers.get("referer", ""),
-        "x_forwarded_for": headers.get("x-forwarded-for", ""),
-        "x_real_ip": headers.get("x-real-ip", ""),
-        "timestamp": get_utc_now().isoformat()
-    }
+def is_valid_uuid(uuid_string: str) -> bool:
+    """
+    Check if string is a valid UUID (alias for validate_uuid).
+
+    Args:
+        uuid_string: String to validate
+
+    Returns:
+        True if valid UUID
+    """
+    return validate_uuid(uuid_string)
+
+def format_file_size(size_bytes: int) -> str:
+    """
+    Format file size in human readable format.
+
+    Args:
+        size_bytes: Size in bytes
+
+    Returns:
+        Formatted file size string
+    """
+    if size_bytes == 0:
+        return "0 B"
+
+    size_names = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    while size_bytes >= 1024 and i < len(size_names) - 1:
+        size_bytes /= 1024.0
+        i += 1
+
+    return f"{size_bytes:.1f} {size_names[i]}"
+
+def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
+    """
+    Truncate text to maximum length (alias for truncate_string).
+
+    Args:
+        text: Text to truncate
+        max_length: Maximum length
+        suffix: Suffix to add if truncated
+
+    Returns:
+        Truncated text
+    """
+    return truncate_string(text, max_length, suffix)
+
+def clean_dict_for_logging(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Clean dictionary for safe logging (alias for mask_sensitive_data).
+
+    Args:
+        data: Dictionary to clean
+
+    Returns:
+        Dictionary with sensitive data masked
+    """
+    return mask_sensitive_data(data)
 
 # Export all helper functions
 __all__ = [
@@ -396,20 +444,24 @@ __all__ = [
     "safe_json_dumps",
     "format_datetime",
     "parse_datetime",
-    "get_utc_now",
-    "utc_now",
-    "is_valid_email",
-    "is_valid_phone",
-    "sanitize_string",
+    "get_client_info",
     "mask_sensitive_data",
-    "paginate_query_params",
-    "create_pagination_response",
+    "validate_uuid",
+    "truncate_string",
     "retry_async",
-    "format_file_size",
-    "validate_password_strength",
-    "generate_random_string",
-    "hash_string",
+    "paginate_query_params",
+    "utc_now",
     "deep_merge_dicts",
-    "clean_dict",
-    "get_client_info"
+    "flatten_dict",
+    "chunk_list",
+    "remove_none_values",
+    "mask_sensitive_value",
+    "batch_process",
+    "calculate_pagination",
+    "normalize_search_term",
+    "extract_domain_from_email",
+    "is_valid_uuid",
+    "format_file_size",
+    "truncate_text",
+    "clean_dict_for_logging"
 ]

@@ -210,7 +210,7 @@ class SessionRevokeRequest(BaseSchema):
     """Schema for revoking a session."""
     session_id: str
 
-# Logout Schema
+# Logout Schemas
 class LogoutRequest(BaseSchema):
     """Schema for logout request."""
     revoke_all_sessions: bool = False
@@ -220,28 +220,113 @@ class LogoutResponse(BaseSchema):
     message: str = "Successfully logged out"
     sessions_revoked: int = 1
 
+# Device Management Schemas
+class DeviceInfo(BaseSchema):
+    """Schema for device information."""
+    device_id: UUID
+    device_name: str
+    device_fingerprint: str
+    ip_address: str
+    user_agent: str
+    location: Optional[str] = None
+    is_trusted: bool = False
+    created_at: datetime
+    last_seen: Optional[datetime] = None
+
+class DeviceListResponse(BaseSchema):
+    """Schema for listing user devices."""
+    devices: List[DeviceInfo]
+    total: int
+
+class DeviceTrustRequest(BaseSchema):
+    """Schema for trusting/untrusting a device."""
+    device_id: UUID
+    trusted: bool = True
+
+# Account Security Schemas
+class AccountSecurityInfo(BaseSchema):
+    """Schema for account security information."""
+    user_id: UUID
+    mfa_enabled: bool = False
+    mfa_type: Optional[str] = None
+    backup_codes_remaining: int = 0
+    trusted_devices_count: int = 0
+    recent_login_attempts: int = 0
+    last_password_change: Optional[datetime] = None
+    password_strength_score: int = 0
+
+class SecurityEventInfo(BaseSchema):
+    """Schema for security event information."""
+    event_id: UUID
+    event_type: str
+    description: str
+    ip_address: str
+    user_agent: str
+    location: Optional[str] = None
+    risk_score: float = 0.0
+    timestamp: datetime
+    status: str  # success, failure, blocked
+
+class SecurityEventListResponse(BaseSchema):
+    """Schema for listing security events."""
+    events: List[SecurityEventInfo]
+    total: int
+    page: int = 1
+    size: int = 20
+
+class SecurityEventCreate(BaseSchema):
+    """Schema for creating security events."""
+    event_type: str
+    description: str
+    ip_address: str
+    user_agent: str
+    location: Optional[str] = None
+    risk_score: float = 0.0
+    status: str = "success"  # success, failure, blocked
+    metadata: Optional[Dict[str, Any]] = None
+
+# Two-Factor Authentication Schemas
+class MFASetupRequest(BaseSchema):
+    """Schema for MFA setup request."""
+    mfa_type: str = Field(..., pattern="^(totp|sms|email)$")
+
+class MFASetupResponse(BaseSchema):
+    """Schema for MFA setup response."""
+    secret: Optional[str] = None
+    qr_code: Optional[str] = None
+    backup_codes: Optional[List[str]] = None
+    setup_uri: Optional[str] = None
+
+class MFADisableRequest(BaseSchema):
+    """Schema for disabling MFA."""
+    password: str
+    code: Optional[str] = None
+
 # Impersonation Schemas
 class ImpersonationRequest(BaseSchema):
     """Schema for user impersonation request."""
     target_user_id: UUID
-    reason: Optional[str] = Field(None, max_length=500)
+    reason: Optional[str] = Field(None, max_length=255)
 
-class ImpersonationResponse(LoginResponse):
+class ImpersonationResponse(BaseSchema):
     """Schema for impersonation response."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
     impersonated_user_id: UUID
-    impersonator_id: UUID
+    impersonator_user_id: UUID
+    message: str = "Impersonation session started"
 
 class ImpersonationEndRequest(BaseSchema):
     """Schema for ending impersonation."""
     pass
 
-# Security Event Schemas
-class SecurityEventCreate(BaseSchema):
-    """Schema for creating security events."""
-    event_type: str
-    severity: str = Field(..., pattern="^(low|medium|high|critical)$")
-    description: str
-    details: Optional[Dict[str, Any]] = None
-    user_id: Optional[UUID] = None
-    ip_address: Optional[str] = None
-    location: Optional[str] = None
+# Error Response Schemas
+class AuthErrorResponse(BaseSchema):
+    """Schema for authentication error responses."""
+    error: str
+    error_description: str
+    error_code: Optional[str] = None
+    correlation_id: Optional[str] = None
+    timestamp: datetime

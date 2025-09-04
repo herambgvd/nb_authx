@@ -19,8 +19,7 @@ from app.schemas.auth import (
 from app.schemas.user import UserResponse
 from app.services.auth_service import auth_service
 from app.services.user_service import user_service
-from app.api.deps import get_current_active_user, get_request_context
-from app.utils.helpers import get_client_info
+from app.api.deps import get_current_active_user
 
 router = APIRouter()
 

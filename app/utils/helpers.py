@@ -49,95 +49,85 @@ def format_datetime(dt: datetime, format_str: str = "%Y-%m-%d %H:%M:%S") -> str:
     return dt.strftime(format_str)
 
 def parse_datetime(date_str: str) -> Optional[datetime]:
-    """Parse datetime from ISO string."""
-    try:
-        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-    except (ValueError, AttributeError):
+    """Parse datetime string to datetime object."""
+    if not date_str:
         return None
 
+    try:
+        # Try multiple datetime formats
+        formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%d"
+        ]
+
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+
+        # If none of the formats work, return None
+        return None
+    except Exception:
+        return None
+
+def generate_slug(text: str) -> str:
+    """Generate URL-friendly slug from text."""
+    import re
+
+    # Convert to lowercase and replace spaces with hyphens
+    slug = re.sub(r'[^\w\s-]', '', text.lower())
+    slug = re.sub(r'[-\s]+', '-', slug)
+    return slug.strip('-')
+
+def sanitize_input(text: str, max_length: int = 1000) -> str:
+    """Sanitize user input text."""
+    if not text:
+        return ""
+
+    # Remove potentially dangerous characters
+    import html
+    sanitized = html.escape(text)
+
+    # Truncate if too long
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+
+    return sanitized.strip()
+
 def get_client_info(request: Request) -> Dict[str, Any]:
-    """
-    Extract client information from request for security analysis.
-
-    Args:
-        request: FastAPI Request object
-
-    Returns:
-        Dictionary containing client information
-    """
-    # Get client IP address
-    ip_address = "unknown"
-    if request.client:
-        ip_address = request.client.host
-
-    # Check for forwarded headers (for proxy/load balancer scenarios)
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        # Take the first IP in the chain
-        ip_address = forwarded_for.split(",")[0].strip()
-
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        ip_address = real_ip
-
-    # Extract other useful information
-    user_agent = request.headers.get("user-agent", "unknown")
-    accept_language = request.headers.get("accept-language", "")
-    referer = request.headers.get("referer", "")
-
+    """Extract client information from request."""
     return {
-        "ip_address": ip_address,
-        "user_agent": user_agent,
-        "accept_language": accept_language,
-        "referer": referer,
-        "method": request.method,
-        "url": str(request.url),
-        "timestamp": datetime.utcnow().isoformat()
+        "ip_address": getattr(request.client, 'host', '127.0.0.1'),
+        "user_agent": request.headers.get("user-agent", "Unknown"),
+        "accept_language": request.headers.get("accept-language", ""),
+        "referer": request.headers.get("referer", ""),
+        "x_forwarded_for": request.headers.get("x-forwarded-for", ""),
+        "x_real_ip": request.headers.get("x-real-ip", "")
     }
 
 def mask_sensitive_data(data: Dict[str, Any], sensitive_keys: List[str] = None) -> Dict[str, Any]:
-    """
-    Mask sensitive data in dictionary for logging/audit purposes.
-
-    Args:
-        data: Dictionary to mask
-        sensitive_keys: List of keys to mask (default: common sensitive keys)
-
-    Returns:
-        Dictionary with sensitive values masked
-    """
+    """Mask sensitive data in dictionary."""
     if sensitive_keys is None:
         sensitive_keys = [
-            "password", "token", "secret", "key", "credential",
-            "authorization", "cookie", "session"
+            'password', 'token', 'secret', 'key', 'auth', 'credential',
+            'ssn', 'social_security', 'credit_card', 'card_number'
         ]
 
-    masked_data = data.copy()
+    def mask_value(key: str, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: mask_value(k, v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [mask_value(key, item) for item in value]
+        elif isinstance(value, str) and any(sensitive in key.lower() for sensitive in sensitive_keys):
+            return "*" * min(len(value), 8)
+        else:
+            return value
 
-    for key, value in masked_data.items():
-        if any(sensitive in key.lower() for sensitive in sensitive_keys):
-            if isinstance(value, str) and len(value) > 4:
-                masked_data[key] = value[:2] + "*" * (len(value) - 4) + value[-2:]
-            else:
-                masked_data[key] = "***"
-
-    return masked_data
-
-def validate_uuid(uuid_string: str) -> bool:
-    """
-    Validate if string is a valid UUID.
-
-    Args:
-        uuid_string: String to validate
-
-    Returns:
-        True if valid UUID
-    """
-    try:
-        uuid.UUID(uuid_string)
-        return True
-    except (ValueError, TypeError):
-        return False
+    return {k: mask_value(k, v) for k, v in data.items()}
 
 def truncate_string(text: str, max_length: int = 255, suffix: str = "...") -> str:
     """
@@ -157,13 +147,7 @@ def truncate_string(text: str, max_length: int = 255, suffix: str = "...") -> st
     return text[:max_length - len(suffix)] + suffix
 
 def retry_async(max_attempts: int = 3, delay: float = 1.0):
-    """
-    Decorator for retrying async functions.
-
-    Args:
-        max_attempts: Maximum number of attempts
-        delay: Delay between attempts in seconds
-    """
+    """Decorator for retrying async functions."""
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -176,9 +160,8 @@ def retry_async(max_attempts: int = 3, delay: float = 1.0):
                     last_exception = e
                     if attempt < max_attempts - 1:
                         await asyncio.sleep(delay * (attempt + 1))
-                        logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {e}")
                     else:
-                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}: {e}")
+                        logger.error(f"Function {func.__name__} failed after {max_attempts} attempts: {e}")
 
             raise last_exception
 
@@ -222,16 +205,7 @@ def utc_now() -> datetime:
     return datetime.utcnow()
 
 def deep_merge_dicts(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Deep merge two dictionaries.
-
-    Args:
-        dict1: First dictionary
-        dict2: Second dictionary (takes precedence)
-
-    Returns:
-        Merged dictionary
-    """
+    """Deep merge two dictionaries."""
     result = dict1.copy()
 
     for key, value in dict2.items():
@@ -267,16 +241,7 @@ def flatten_dict(nested_dict: Dict[str, Any], separator: str = '_') -> Dict[str,
     return _flatten(nested_dict)
 
 def chunk_list(lst: List[Any], chunk_size: int) -> List[List[Any]]:
-    """
-    Split a list into chunks of specified size.
-
-    Args:
-        lst: List to chunk
-        chunk_size: Size of each chunk
-
-    Returns:
-        List of chunks
-    """
+    """Split list into chunks of specified size."""
     return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
 
 def remove_none_values(data: Dict[str, Any]) -> Dict[str, Any]:

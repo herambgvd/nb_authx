@@ -99,7 +99,32 @@ class LocationListResponse(BaseSchema):
     page: int
     page_size: int
     has_next: bool
-    has_prev: bool
+
+# Google Maps Integration Schemas
+class LocationWithCoordinates(BaseModel):
+    """Schema for location data with coordinates from Google Maps API."""
+    address: str
+    latitude: float
+    longitude: float
+    place_id: Optional[str] = None
+    formatted_address: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
+    place_types: List[str] = Field(default_factory=list)
+
+class LocationSearchRequest(BaseModel):
+    """Schema for location search request."""
+    query: str = Field(..., min_length=2, max_length=255)
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    radius: int = Field(default=50000, ge=1000, le=100000)  # 1km to 100km
+
+class LocationValidationRequest(BaseModel):
+    """Schema for location validation request."""
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
 
 # Location Hierarchy Schemas
 class LocationHierarchyItem(BaseSchema):
@@ -184,18 +209,17 @@ class LocationAssignmentResponse(UUIDSchema, TimestampSchema):
 # Location Statistics Schemas
 class LocationStats(BaseSchema):
     """Schema for location statistics."""
-    total_locations: int = 0
-    active_locations: int = 0
-    inactive_locations: int = 0
-    locations_by_type: Dict[str, int] = Field(default_factory=dict)
-    users_by_location: Dict[str, int] = Field(default_factory=dict)
+    total_users: int = 0
+    active_users: int = 0
+    total_devices: int = 0
+    last_activity: Optional[datetime] = None
 
 class LocationStatsResponse(BaseSchema):
     """Schema for location statistics response."""
+    location_id: UUID
     stats: LocationStats
-    top_locations: List[Dict[str, Any]] = Field(default_factory=list)
-    recent_changes: List[Dict[str, Any]] = Field(default_factory=list)
+    generated_at: datetime
 
 # Update forward references
 LocationResponse.model_rebuild()
-LocationHierarchyItem.model_rebuild()
+LocationGroupResponse.model_rebuild()

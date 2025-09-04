@@ -5,10 +5,73 @@ Provides data validation, sanitization, and formatting utilities.
 import re
 import ipaddress
 from typing import Dict, Any, List, Optional, Union
-from email_validator import validate_email, EmailNotValidError
+from email_validator import validate_email as email_validate, EmailNotValidError
 from urllib.parse import urlparse
+import uuid
 
-from app.core.config import settings
+def validate_email(email: str) -> Dict[str, Any]:
+    """
+    Validate email address format.
+
+    Args:
+        email: Email address to validate
+
+    Returns:
+        Dict with validation result
+    """
+    result = {"valid": True, "errors": []}
+
+    if not email:
+        result["valid"] = False
+        result["errors"].append("Email is required")
+        return result
+
+    try:
+        valid = email_validate(email)
+        result["normalized_email"] = valid.email
+    except EmailNotValidError as e:
+        result["valid"] = False
+        result["errors"].append(str(e))
+
+    return result
+
+def validate_username(username: str) -> Dict[str, Any]:
+    """
+    Validate username format and requirements.
+
+    Args:
+        username: Username to validate
+
+    Returns:
+        Dict with validation result
+    """
+    result = {"valid": True, "errors": []}
+
+    if not username:
+        result["valid"] = False
+        result["errors"].append("Username is required")
+        return result
+
+    # Check length
+    if len(username) < 3:
+        result["valid"] = False
+        result["errors"].append("Username must be at least 3 characters long")
+
+    if len(username) > 50:
+        result["valid"] = False
+        result["errors"].append("Username cannot be longer than 50 characters")
+
+    # Check format - alphanumeric, underscore, hyphen allowed
+    if not re.match(r'^[a-zA-Z0-9_-]+$', username):
+        result["valid"] = False
+        result["errors"].append("Username can only contain letters, numbers, underscores, and hyphens")
+
+    # Cannot start with number
+    if username[0].isdigit():
+        result["valid"] = False
+        result["errors"].append("Username cannot start with a number")
+
+    return result
 
 def validate_password(password: str) -> Dict[str, Any]:
     """
@@ -20,69 +83,42 @@ def validate_password(password: str) -> Dict[str, Any]:
     Returns:
         Dict with validation result and requirements
     """
-    result = {
-        "valid": True,
-        "errors": [],
-        "requirements": {
-            "min_length": settings.PASSWORD_MIN_LENGTH,
-            "require_uppercase": settings.PASSWORD_REQUIRE_UPPERCASE,
-            "require_lowercase": settings.PASSWORD_REQUIRE_LOWERCASE,
-            "require_digits": settings.PASSWORD_REQUIRE_DIGITS,
-            "require_special": settings.PASSWORD_REQUIRE_SPECIAL
-        }
-    }
+    result = {"valid": True, "errors": []}
+
+    if not password:
+        result["valid"] = False
+        result["errors"].append("Password is required")
+        return result
 
     # Check minimum length
-    if len(password) < settings.PASSWORD_MIN_LENGTH:
+    if len(password) < 8:
         result["valid"] = False
-        result["errors"].append(f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters long")
+        result["errors"].append("Password must be at least 8 characters long")
 
     # Check for uppercase letters
-    if settings.PASSWORD_REQUIRE_UPPERCASE and not any(c.isupper() for c in password):
+    if not any(c.isupper() for c in password):
         result["valid"] = False
         result["errors"].append("Password must contain at least one uppercase letter")
 
     # Check for lowercase letters
-    if settings.PASSWORD_REQUIRE_LOWERCASE and not any(c.islower() for c in password):
+    if not any(c.islower() for c in password):
         result["valid"] = False
         result["errors"].append("Password must contain at least one lowercase letter")
 
     # Check for digits
-    if settings.PASSWORD_REQUIRE_DIGITS and not any(c.isdigit() for c in password):
+    if not any(c.isdigit() for c in password):
         result["valid"] = False
         result["errors"].append("Password must contain at least one digit")
 
     # Check for special characters
-    if settings.PASSWORD_REQUIRE_SPECIAL:
-        special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
-        if not any(c in special_chars for c in password):
-            result["valid"] = False
-            result["errors"].append("Password must contain at least one special character")
-
-    return result
-
-def validate_email_address(email: str) -> Dict[str, Any]:
-    """
-    Validate email address format and domain.
-
-    Args:
-        email: Email address to validate
-
-    Returns:
-        Dict with validation result
-    """
-    result = {"valid": True, "errors": [], "normalized": None}
-
-    try:
-        validation = validate_email(email)
-        result["normalized"] = validation.email
-    except EmailNotValidError as e:
+    special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    if not any(c in special_chars for c in password):
         result["valid"] = False
-        result["errors"].append(str(e))
+        result["errors"].append("Password must contain at least one special character")
 
     return result
 
-def validate_phone_number(phone: str) -> Dict[str, Any]:
+def validate_phone(phone: str) -> Dict[str, Any]:
     """
     Validate phone number format.
 
@@ -92,18 +128,29 @@ def validate_phone_number(phone: str) -> Dict[str, Any]:
     Returns:
         Dict with validation result
     """
-    result = {"valid": True, "errors": [], "normalized": None}
+    result = {"valid": True, "errors": []}
 
-    # Remove all non-digit characters
+    if not phone:
+        result["valid"] = False
+        result["errors"].append("Phone number is required")
+        return result
+
+    # Remove all non-digit characters for validation
     digits_only = re.sub(r'\D', '', phone)
 
-    # Check length (10-15 digits)
-    if len(digits_only) < 10 or len(digits_only) > 15:
+    # Check if it's a valid length (10-15 digits)
+    if len(digits_only) < 10:
         result["valid"] = False
-        result["errors"].append("Phone number must be between 10 and 15 digits")
-    else:
-        # Format as +1234567890
-        result["normalized"] = f"+{digits_only}"
+        result["errors"].append("Phone number must have at least 10 digits")
+    elif len(digits_only) > 15:
+        result["valid"] = False
+        result["errors"].append("Phone number cannot have more than 15 digits")
+
+    # Check for valid phone pattern
+    phone_pattern = r'^[\+]?[1-9]?[\d\s\-\(\)\.]{8,20}$'
+    if not re.match(phone_pattern, phone):
+        result["valid"] = False
+        result["errors"].append("Invalid phone number format")
 
     return result
 
@@ -117,24 +164,53 @@ def validate_url(url: str) -> Dict[str, Any]:
     Returns:
         Dict with validation result
     """
-    result = {"valid": True, "errors": [], "normalized": None}
+    result = {"valid": True, "errors": []}
+
+    if not url:
+        result["valid"] = False
+        result["errors"].append("URL is required")
+        return result
 
     try:
         parsed = urlparse(url)
-        if not all([parsed.scheme, parsed.netloc]):
+
+        if not parsed.scheme:
             result["valid"] = False
-            result["errors"].append("Invalid URL format")
-        else:
-            result["normalized"] = url.lower()
+            result["errors"].append("URL must include a scheme (http:// or https://)")
+
+        if not parsed.netloc:
+            result["valid"] = False
+            result["errors"].append("URL must include a domain")
+
+        if parsed.scheme not in ['http', 'https']:
+            result["valid"] = False
+            result["errors"].append("URL scheme must be http or https")
+
     except Exception as e:
         result["valid"] = False
-        result["errors"].append(f"Invalid URL: {str(e)}")
+        result["errors"].append(f"Invalid URL format: {str(e)}")
 
     return result
 
+def validate_uuid(uuid_string: str) -> bool:
+    """
+    Validate UUID format.
+
+    Args:
+        uuid_string: String to validate as UUID
+
+    Returns:
+        True if valid UUID, False otherwise
+    """
+    try:
+        uuid.UUID(uuid_string)
+        return True
+    except (ValueError, TypeError):
+        return False
+
 def validate_ip_address(ip: str) -> Dict[str, Any]:
     """
-    Validate IP address (IPv4 or IPv6).
+    Validate IP address format.
 
     Args:
         ip: IP address to validate
@@ -142,47 +218,28 @@ def validate_ip_address(ip: str) -> Dict[str, Any]:
     Returns:
         Dict with validation result
     """
-    result = {"valid": True, "errors": [], "version": None, "is_private": None}
+    result = {"valid": True, "errors": [], "type": None}
+
+    if not ip:
+        result["valid"] = False
+        result["errors"].append("IP address is required")
+        return result
 
     try:
         ip_obj = ipaddress.ip_address(ip)
-        result["version"] = ip_obj.version
-        result["is_private"] = ip_obj.is_private
+        if isinstance(ip_obj, ipaddress.IPv4Address):
+            result["type"] = "ipv4"
+        elif isinstance(ip_obj, ipaddress.IPv6Address):
+            result["type"] = "ipv6"
     except ValueError as e:
         result["valid"] = False
         result["errors"].append(f"Invalid IP address: {str(e)}")
 
     return result
 
-def sanitize_string(value: str, max_length: Optional[int] = None) -> str:
-    """
-    Sanitize string input by removing dangerous characters.
-
-    Args:
-        value: String to sanitize
-        max_length: Maximum allowed length
-
-    Returns:
-        Sanitized string
-    """
-    if not isinstance(value, str):
-        return str(value)
-
-    # Remove null bytes and control characters
-    sanitized = ''.join(char for char in value if ord(char) >= 32 or char in '\t\n\r')
-
-    # Strip whitespace
-    sanitized = sanitized.strip()
-
-    # Truncate if needed
-    if max_length and len(sanitized) > max_length:
-        sanitized = sanitized[:max_length]
-
-    return sanitized
-
 def validate_slug(slug: str) -> Dict[str, Any]:
     """
-    Validate slug format (URL-friendly identifier).
+    Validate slug format for URLs.
 
     Args:
         slug: Slug to validate
@@ -192,120 +249,141 @@ def validate_slug(slug: str) -> Dict[str, Any]:
     """
     result = {"valid": True, "errors": []}
 
-    # Check format: lowercase letters, numbers, hyphens
-    if not re.match(r'^[a-z0-9-]+$', slug):
+    if not slug:
         result["valid"] = False
-        result["errors"].append("Slug must contain only lowercase letters, numbers, and hyphens")
+        result["errors"].append("Slug is required")
+        return result
 
     # Check length
-    if len(slug) < 3 or len(slug) > 50:
+    if len(slug) < 3:
         result["valid"] = False
-        result["errors"].append("Slug must be between 3 and 50 characters")
+        result["errors"].append("Slug must be at least 3 characters long")
+
+    if len(slug) > 100:
+        result["valid"] = False
+        result["errors"].append("Slug cannot be longer than 100 characters")
+
+    # Check format - lowercase letters, numbers, and hyphens only
+    if not re.match(r'^[a-z0-9-]+$', slug):
+        result["valid"] = False
+        result["errors"].append("Slug can only contain lowercase letters, numbers, and hyphens")
 
     # Cannot start or end with hyphen
     if slug.startswith('-') or slug.endswith('-'):
         result["valid"] = False
         result["errors"].append("Slug cannot start or end with a hyphen")
 
-    # Cannot have consecutive hyphens
-    if '--' in slug:
-        result["valid"] = False
-        result["errors"].append("Slug cannot contain consecutive hyphens")
-
     return result
 
-def validate_username(username: str) -> Dict[str, Any]:
+def sanitize_html(text: str) -> str:
     """
-    Validate username format.
+    Sanitize HTML content by removing dangerous tags.
 
     Args:
-        username: Username to validate
+        text: HTML text to sanitize
+
+    Returns:
+        Sanitized HTML text
+    """
+    import html
+
+    if not text:
+        return ""
+
+    # Escape HTML entities
+    sanitized = html.escape(text)
+
+    return sanitized
+
+def validate_file_extension(filename: str, allowed_extensions: List[str]) -> Dict[str, Any]:
+    """
+    Validate file extension against allowed list.
+
+    Args:
+        filename: Name of the file
+        allowed_extensions: List of allowed extensions
 
     Returns:
         Dict with validation result
     """
     result = {"valid": True, "errors": []}
 
-    # Check format: letters, numbers, underscores, dots
-    if not re.match(r'^[a-zA-Z0-9._]+$', username):
+    if not filename:
         result["valid"] = False
-        result["errors"].append("Username can only contain letters, numbers, dots, and underscores")
+        result["errors"].append("Filename is required")
+        return result
 
-    # Check length
-    if len(username) < 3 or len(username) > 30:
-        result["valid"] = False
-        result["errors"].append("Username must be between 3 and 30 characters")
+    # Extract file extension
+    extension = filename.lower().split('.')[-1] if '.' in filename else ''
 
-    # Cannot start or end with dot or underscore
-    if username.startswith('.') or username.startswith('_') or username.endswith('.') or username.endswith('_'):
+    if not extension:
         result["valid"] = False
-        result["errors"].append("Username cannot start or end with a dot or underscore")
+        result["errors"].append("File must have an extension")
+        return result
 
-    # Cannot have consecutive dots or underscores
-    if '..' in username or '__' in username:
+    if extension not in [ext.lower() for ext in allowed_extensions]:
         result["valid"] = False
-        result["errors"].append("Username cannot contain consecutive dots or underscores")
+        result["errors"].append(f"File extension '{extension}' is not allowed. Allowed: {', '.join(allowed_extensions)}")
 
     return result
 
-def validate_color_hex(color: str) -> Dict[str, Any]:
+def validate_date_range(start_date: str, end_date: str) -> Dict[str, Any]:
     """
-    Validate hex color format.
+    Validate date range.
 
     Args:
-        color: Hex color to validate
-
-    Returns:
-        Dict with validation result
-    """
-    result = {"valid": True, "errors": [], "normalized": None}
-
-    # Check format: #RRGGBB
-    if not re.match(r'^#[0-9A-Fa-f]{6}$', color):
-        result["valid"] = False
-        result["errors"].append("Color must be in hex format (#RRGGBB)")
-    else:
-        result["normalized"] = color.upper()
-
-    return result
-
-def validate_json_data(data: Any, max_depth: int = 10, max_items: int = 1000) -> Dict[str, Any]:
-    """
-    Validate JSON data structure for safety.
-
-    Args:
-        data: Data to validate
-        max_depth: Maximum nesting depth
-        max_items: Maximum number of items
+        start_date: Start date string
+        end_date: End date string
 
     Returns:
         Dict with validation result
     """
     result = {"valid": True, "errors": []}
 
-    def count_items(obj, depth=0):
-        if depth > max_depth:
+    try:
+        from datetime import datetime
+
+        start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+        if start >= end:
             result["valid"] = False
-            result["errors"].append(f"JSON data exceeds maximum depth of {max_depth}")
-            return 0
+            result["errors"].append("Start date must be before end date")
 
-        count = 0
-        if isinstance(obj, dict):
-            count += len(obj)
-            for value in obj.values():
-                count += count_items(value, depth + 1)
-        elif isinstance(obj, list):
-            count += len(obj)
-            for item in obj:
-                count += count_items(item, depth + 1)
-        else:
-            count += 1
-
-        return count
-
-    total_items = count_items(data)
-    if total_items > max_items:
+    except ValueError as e:
         result["valid"] = False
-        result["errors"].append(f"JSON data exceeds maximum items limit of {max_items}")
+        result["errors"].append(f"Invalid date format: {str(e)}")
+
+    return result
+
+def validate_organization_name(name: str) -> Dict[str, Any]:
+    """
+    Validate organization name.
+
+    Args:
+        name: Organization name to validate
+
+    Returns:
+        Dict with validation result
+    """
+    result = {"valid": True, "errors": []}
+
+    if not name:
+        result["valid"] = False
+        result["errors"].append("Organization name is required")
+        return result
+
+    if len(name) < 2:
+        result["valid"] = False
+        result["errors"].append("Organization name must be at least 2 characters long")
+
+    if len(name) > 100:
+        result["valid"] = False
+        result["errors"].append("Organization name cannot be longer than 100 characters")
+
+    # Check for valid characters
+    if not re.match(r'^[a-zA-Z0-9\s\-\.\_\&]+$', name):
+        result["valid"] = False
+        result["errors"].append("Organization name contains invalid characters")
 
     return result

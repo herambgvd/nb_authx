@@ -13,7 +13,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc, func
 
-from app.api.deps import get_current_user, get_async_db, get_organization_admin, get_current_superuser
+from app.api.deps import get_current_active_user, get_current_super_admin, get_current_organization_admin
+from app.db.session import get_async_db
 from app.models.user import User
 from app.models.audit import AuditLog, SecurityEvent, ComplianceReport, ForensicSnapshot
 from app.schemas.audit import (
@@ -44,7 +45,7 @@ router = APIRouter()
 async def create_audit_log(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     log_data: AuditLogCreate
 ):
     """
@@ -66,7 +67,7 @@ async def create_audit_log(
 async def get_audit_logs(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     action: Optional[str] = None,
@@ -122,7 +123,7 @@ async def get_audit_logs(
 async def get_audit_log(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     log_id: UUID
 ):
     """Get audit log by ID."""
@@ -149,7 +150,7 @@ async def get_audit_log(
 async def create_security_event(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     event_data: SecurityEventCreate
 ):
     """
@@ -170,7 +171,7 @@ async def create_security_event(
 async def get_security_events(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     event_type: Optional[str] = None,
@@ -223,7 +224,7 @@ async def get_security_events(
 async def update_security_event(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     event_id: UUID,
     event_data: SecurityEventUpdate
 ):
@@ -259,7 +260,7 @@ async def update_security_event(
 async def create_compliance_report(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_organization_admin),
+    current_user: User = Depends(get_current_super_admin),
     report_data: ComplianceReportCreate,
     background_tasks: BackgroundTasks
 ):
@@ -286,7 +287,7 @@ async def create_compliance_report(
 async def get_compliance_reports(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     report_type: Optional[str] = None,
@@ -330,7 +331,7 @@ async def get_compliance_reports(
 async def download_compliance_report(
     *,
     db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     report_id: UUID,
     format: str = Query("pdf", regex="^(pdf|csv|json)$")
 ):

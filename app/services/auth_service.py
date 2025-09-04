@@ -389,6 +389,29 @@ class AuthService:
 
         return True
 
+    async def get_user_by_id(self, db: AsyncSession, user_id: str) -> Optional[User]:
+        """
+        Get user by ID.
+
+        Args:
+            db: Database session
+            user_id: User ID
+
+        Returns:
+            Optional[User]: User object or None if not found
+        """
+        from sqlalchemy import select
+        from uuid import UUID
+
+        try:
+            user_uuid = UUID(user_id)
+            result = await db.execute(
+                select(User).where(User.id == user_uuid)
+            )
+            return result.scalar_one_or_none()
+        except (ValueError, Exception):
+            return None
+
     # Private helper methods
     async def _get_user_by_identifier(self, db: AsyncSession, identifier: str) -> Optional[User]:
         """Get user by username or email with all required attributes loaded."""

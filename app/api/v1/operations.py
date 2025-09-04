@@ -1,83 +1,190 @@
 """
-Operations API endpoints for the AuthX service.
-This module provides API endpoints for health checks, metrics, and system operations.
+Operations API endpoints for AuthX.
+Provides system operations, health checks, and maintenance endpoints.
 """
-from typing import Dict, Any
-from fastapi import APIRouter, Depends, Response, Request
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_async_db, get_current_superuser
-from app.core.infrastructure import (
-    check_database_health,
-    check_redis_health,
-    get_metrics
-)
-from app.core.config import settings
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from typing import Dict, Any
+import logging
+
+from app.db.session import get_async_db
+from app.core.infrastructure import check_system_health, check_redis_health
+from app.api.deps import get_current_super_admin
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.get("/health", tags=["Operations"])
-async def health_check(db: AsyncSession = Depends(get_async_db)):
-    """
-    Check the health of the service.
-    Returns the status of various components.
-    """
-    # Check database health
-    db_health = await check_database_health(db)
+@router.get("/health")
+async def health_check():
+    """Basic health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "authx",
+        "version": "1.0.0"
+    }
 
-    # Check Redis health
+@router.get("/health/detailed")
+async def detailed_health_check(
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Detailed health check with system metrics."""
+    try:
+        # Check database connection
+        from sqlalchemy import text
+        await db.execute(text("SELECT 1"))
+        db_status = "healthy"
+        db_message = "Database connection successful"
+    except Exception as e:
+        db_status = "unhealthy"
+        db_message = f"Database error: {str(e)}"
+
+    # Check Redis
     redis_health = await check_redis_health()
 
-    # Determine overall health
-    components = [db_health, redis_health]
-    overall_status = "healthy"
+    # Get system health
+    system_health = await check_system_health()
 
-    for component in components:
-        if component["status"] != "healthy":
-            overall_status = "degraded"
-            break
+    overall_status = "healthy"
+    if db_status != "healthy" or redis_health["status"] != "healthy":
+        overall_status = "degraded"
 
     return {
         "status": overall_status,
-        "version": settings.VERSION,
         "components": {
-            "database": db_health,
-            "redis": redis_health
-        }
+            "database": {
+                "status": db_status,
+                "message": db_message
+            },
+            "redis": redis_health,
+            "system": system_health
+        },
+        "service": "authx",
+        "version": "1.0.0"
     }
 
-@router.get("/health/db", tags=["Operations"])
-async def database_health(db: AsyncSession = Depends(get_async_db)):
-    """Check database connectivity and performance."""
-    return await check_database_health(db)
+@router.get("/info")
+async def service_info():
+    """Get service information."""
+    from app.core.config import settings
 
-@router.get("/health/redis", tags=["Operations"])
-async def redis_health():
-    """Check Redis connectivity and performance."""
-    return await check_redis_health()
-
-@router.get("/metrics", tags=["Operations"])
-async def get_system_metrics(
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_superuser)
-):
-    """
-    Get system metrics.
-    Only superusers can access system metrics.
-    """
-    return await get_metrics(db)
-
-@router.get("/ping", tags=["Operations"])
-async def ping():
-    """Simple ping endpoint for basic health checks."""
-    return {"message": "pong", "timestamp": "2023-09-03T12:00:00Z"}
-
-@router.get("/version", tags=["Operations"])
-async def get_version():
-    """Get application version information."""
     return {
-        "version": settings.VERSION,
-        "name": "AuthX",
-        "environment": settings.ENVIRONMENT
+        "service": "AuthX",
+        "version": "1.0.0",
+        "environment": settings.ENVIRONMENT,
+        "features": {
+            "redis_enabled": settings.REDIS_ENABLED,
+            "mfa_enabled": settings.MFA_ENABLED,
+            "audit_logging": settings.AUDIT_LOG_ENABLED,
+            "rate_limiting": settings.RATE_LIMIT_ENABLED
+        },
+        "api_docs": "/docs" if settings.DOCS_ENABLED else None
     }
+
+@router.get("/database/info")
+async def database_info(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_super_admin)
+):
+    """Get database information (superuser only)."""
+    try:
+        table_info = await db_manager.get_table_info()
+        migration_status = await db_manager.check_migrations()
+
+        return {
+            "status": "connected",
+            "tables": table_info,
+            "migrations": migration_status
+        }
+    except Exception as e:
+        logger.error(f"Failed to get database info: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve database information"
+        )
+
+@router.post("/cache/clear")
+async def clear_cache(
+    current_user: User = Depends(get_current_super_admin)
+):
+    """Clear application cache (superuser only)."""
+    try:
+        from app.core.infrastructure import redis_client, REDIS_AVAILABLE
+
+        if REDIS_AVAILABLE and redis_client:
+            # Clear all cache keys
+            keys = redis_client.keys("cache:*")
+            if keys:
+                redis_client.delete(*keys)
+                cleared_count = len(keys)
+            else:
+                cleared_count = 0
+
+            return {
+                "status": "success",
+                "message": f"Cleared {cleared_count} cache entries",
+                "backend": "redis"
+            }
+        else:
+            return {
+                "status": "success",
+                "message": "No cache backend available",
+                "backend": "none"
+            }
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to clear cache"
+        )
+
+@router.get("/metrics")
+async def get_metrics(
+    current_user: User = Depends(get_current_super_admin),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get application metrics (superuser only)."""
+    try:
+        from app.models.user import User
+        from app.models.organization import Organization
+
+        # Get user metrics
+        user_count_result = await db.execute(
+            select(func.count(User.id))
+        )
+        total_users = user_count_result.scalar()
+
+        active_users_result = await db.execute(
+            select(func.count(User.id)).where(User.is_active == True)
+        )
+        active_users = active_users_result.scalar()
+
+        # Get organization metrics
+        org_count_result = await db.execute(
+            select(func.count(Organization.id))
+        )
+        total_organizations = org_count_result.scalar()
+
+        # Get system health
+        system_health = await check_system_health()
+
+        return {
+            "users": {
+                "total": total_users,
+                "active": active_users
+            },
+            "organizations": {
+                "total": total_organizations
+            },
+            "system": system_health,
+            "timestamp": system_health.get("timestamp")
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get metrics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve metrics"
+        )

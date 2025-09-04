@@ -1,318 +1,314 @@
 """
-Admin schemas for the AuthX service.
-This module provides Pydantic models for system administration functionality.
+Admin schemas for AuthX super admin functionality.
 """
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Dict, Any, List, Optional
 from uuid import UUID
+from pydantic import BaseModel, Field
 
-from pydantic import BaseModel, Field, validator
+class SuperAdminDashboard(BaseModel):
+    """Super admin dashboard data."""
+    organization_stats: Dict[str, int]
+    user_stats: Dict[str, int]
+    system_health: Dict[str, Any]
+    current_metrics: Optional[Dict[str, Any]] = None
+    recent_audit_logs: List[Dict[str, Any]]
 
-from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema
+class OrganizationApprovalRequest(BaseModel):
+    """Organization approval request."""
+    organization_id: UUID
+    approval_notes: Optional[str] = None
 
-# System Config Schemas
-class SystemConfigBase(BaseSchema):
-    """Base schema for system configuration."""
-    key: str = Field(..., min_length=1, max_length=255)
-    value: Dict[str, Any]
-    description: Optional[str] = Field(None, max_length=1000)
-    is_encrypted: bool = False
+class OrganizationRejectionRequest(BaseModel):
+    """Organization rejection request."""
+    organization_id: UUID
+    rejection_reason: str = Field(..., min_length=10, max_length=500)
 
-    @validator('key')
-    def validate_key_format(cls, v):
-        """Validate configuration key format."""
-        import re
-        if not re.match(r'^[a-z0-9._-]+$', v):
-            raise ValueError('Key must contain only lowercase letters, numbers, dots, hyphens, and underscores')
-        return v
+class SystemStats(BaseModel):
+    """System statistics."""
+    total_organizations: int
+    active_organizations: int
+    total_users: int
+    active_users: int
+    system_uptime: str
+    last_backup: Optional[datetime] = None
+
+class UserManagementAction(BaseModel):
+    """User management action request."""
+    user_id: UUID
+    action: str = Field(..., pattern="^(activate|deactivate|verify_email|reset_password|make_super_admin|remove_super_admin)$")
+    details: Optional[Dict[str, Any]] = None
+
+class AuditLogFilter(BaseModel):
+    """Audit log filter parameters."""
+    action_filter: Optional[str] = None
+    user_id: Optional[UUID] = None
+    organization_id: Optional[UUID] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=50, ge=1, le=100)
+
+class UserFilter(BaseModel):
+    """User filter parameters."""
+    search: Optional[str] = None
+    organization_id: Optional[UUID] = None
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=50, ge=1, le=100)
+
+class SystemAlert(BaseModel):
+    """System alert model."""
+    type: str
+    message: str
+    severity: str = Field(default="warning", pattern="^(info|warning|error|critical)$")
+    timestamp: datetime
+    resolved: bool = False
+
+class PerformanceMetrics(BaseModel):
+    """Performance metrics model."""
+    cpu_usage: float
+    memory_usage: float
+    disk_usage: float
+    response_time: float
+    error_rate: float
+    active_connections: int
+    timestamp: datetime
+
+class HealthCheckResult(BaseModel):
+    """Health check result model."""
+    service: str
+    status: str = Field(pattern="^(healthy|degraded|unhealthy)$")
+    response_time: float
+    details: Dict[str, Any]
+    timestamp: datetime
+
+class BulkUserAction(BaseModel):
+    """Bulk user action request."""
+    user_ids: List[UUID] = Field(..., min_items=1, max_items=100)
+    action: str = Field(..., pattern="^(activate|deactivate|verify_email|delete)$")
+    reason: Optional[str] = None
+
+# System Configuration Schemas
+class SystemConfigBase(BaseModel):
+    """Base system configuration schema."""
+    key: str = Field(..., min_length=1, max_length=100)
+    value: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    category: str = Field(default="general")
+    is_sensitive: bool = Field(default=False)
 
 class SystemConfigCreate(SystemConfigBase):
-    """Schema for creating system configuration."""
+    """System configuration creation schema."""
     pass
 
-class SystemConfigUpdate(BaseSchema):
-    """Schema for updating system configuration."""
-    value: Optional[Dict[str, Any]] = None
-    description: Optional[str] = Field(None, max_length=1000)
-    is_encrypted: Optional[bool] = None
+class SystemConfigUpdate(BaseModel):
+    """System configuration update schema."""
+    value: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    is_sensitive: Optional[bool] = None
 
-class SystemConfigResponse(UUIDSchema, SystemConfigBase, TimestampSchema):
-    """Schema for system configuration response."""
-    created_by: Optional[UUID] = None
+class SystemConfigResponse(SystemConfigBase):
+    """System configuration response schema."""
+    id: UUID
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    created_by: UUID
     updated_by: Optional[UUID] = None
 
-class SystemConfigListResponse(BaseSchema):
-    """Schema for paginated system config list response."""
+class SystemConfigListResponse(BaseModel):
+    """System configuration list response."""
     configs: List[SystemConfigResponse]
     total: int
     page: int
-    page_size: int
-    has_next: bool
-    has_prev: bool
+    limit: int
 
-# License Schemas
-class LicenseBase(BaseSchema):
-    """Base schema for license data."""
-    license_key: str = Field(..., min_length=10, max_length=255)
-    license_type: str = Field(..., pattern="^(trial|starter|professional|enterprise)$")
-    max_users: Optional[int] = Field(None, ge=1)
-    max_organizations: Optional[int] = Field(None, ge=1)
-    features: Dict[str, Any] = Field(default_factory=dict)
+# License Management Schemas
+class LicenseBase(BaseModel):
+    """Base license schema."""
+    license_type: str = Field(..., pattern="^(free|basic|professional|enterprise)$")
+    max_users: int = Field(..., ge=1)
+    max_organizations: int = Field(..., ge=1)
+    features: List[str] = Field(default_factory=list)
+    expires_at: Optional[datetime] = None
 
 class LicenseCreate(LicenseBase):
-    """Schema for creating a license."""
+    """License creation schema."""
     organization_id: UUID
+
+class LicenseUpdate(BaseModel):
+    """License update schema."""
+    license_type: Optional[str] = None
+    max_users: Optional[int] = None
+    max_organizations: Optional[int] = None
+    features: Optional[List[str]] = None
     expires_at: Optional[datetime] = None
 
-class LicenseUpdate(BaseSchema):
-    """Schema for updating a license."""
-    license_type: Optional[str] = Field(None, pattern="^(trial|starter|professional|enterprise)$")
-    max_users: Optional[int] = Field(None, ge=1)
-    max_organizations: Optional[int] = Field(None, ge=1)
-    features: Optional[Dict[str, Any]] = None
-    expires_at: Optional[datetime] = None
-
-class LicenseResponse(UUIDSchema, LicenseBase, TimestampSchema):
-    """Schema for license response."""
+class LicenseResponse(LicenseBase):
+    """License response schema."""
+    id: UUID
     organization_id: UUID
-    status: str
-    issued_at: datetime
-    expires_at: Optional[datetime]
-    activated_at: Optional[datetime]
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
-class LicenseListResponse(BaseSchema):
-    """Schema for paginated license list response."""
+class LicenseListResponse(BaseModel):
+    """License list response."""
     licenses: List[LicenseResponse]
     total: int
     page: int
-    page_size: int
-    has_next: bool
-    has_prev: bool
+    limit: int
 
 # Analytics Schemas
-class AnalyticsTimeRange(BaseSchema):
-    """Schema for analytics time range."""
+class AnalyticsTimeRange(BaseModel):
+    """Analytics time range."""
     start_date: datetime
     end_date: datetime
     granularity: str = Field(default="day", pattern="^(hour|day|week|month)$")
 
-    @classmethod
-    def last_30_days(cls) -> 'AnalyticsTimeRange':
-        """Create a time range for the last 30 days."""
-        from datetime import datetime, timedelta
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=30)
-        return cls(start_date=start_date, end_date=end_date)
-
-    @classmethod
-    def last_7_days(cls) -> 'AnalyticsTimeRange':
-        """Create a time range for the last 7 days."""
-        from datetime import datetime, timedelta
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=7)
-        return cls(start_date=start_date, end_date=end_date)
-
-    @classmethod
-    def last_24_hours(cls) -> 'AnalyticsTimeRange':
-        """Create a time range for the last 24 hours."""
-        from datetime import datetime, timedelta
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(hours=24)
-        return cls(start_date=start_date, end_date=end_date, granularity="hour")
-
-class AnalyticsMetric(BaseSchema):
-    """Schema for analytics metric."""
+class AnalyticsMetric(BaseModel):
+    """Single analytics metric."""
     name: str
     value: float
-    unit: Optional[str] = None
-    change_percentage: Optional[float] = None
-    trend: Optional[str] = Field(None, pattern="^(up|down|stable)$")
+    timestamp: datetime
+    metadata: Optional[Dict[str, Any]] = None
 
 class AnalyticsSeries(BaseModel):
-    """Schema for analytics time series data."""
-    timestamp: datetime
-    value: float
-    label: Optional[str] = None
+    """Analytics data series."""
+    metric_name: str
+    data_points: List[AnalyticsMetric]
+    aggregation: str = Field(default="sum", pattern="^(sum|avg|count|min|max)$")
 
-class PlatformAnalyticsResponse(BaseSchema):
-    """Schema for platform analytics response."""
-    total_users: AnalyticsMetric
-    active_users: AnalyticsMetric
-    total_organizations: AnalyticsMetric
-    total_sessions: AnalyticsMetric
-    time_series: List[AnalyticsSeries] = Field(default_factory=list)
-    top_organizations: List[Dict[str, Any]] = Field(default_factory=list)
+class PlatformAnalyticsResponse(BaseModel):
+    """Platform-wide analytics response."""
+    time_range: AnalyticsTimeRange
+    series: List[AnalyticsSeries]
+    summary: Dict[str, Any]
 
-class OrganizationAnalyticsResponse(BaseSchema):
-    """Schema for organization analytics response."""
+class OrganizationAnalyticsResponse(BaseModel):
+    """Organization-specific analytics response."""
     organization_id: UUID
-    organization_name: str
-    user_count: AnalyticsMetric
-    active_sessions: AnalyticsMetric
-    login_frequency: AnalyticsMetric
-    storage_usage: AnalyticsMetric
-    time_series: List[AnalyticsSeries] = Field(default_factory=list)
+    time_range: AnalyticsTimeRange
+    series: List[AnalyticsSeries]
+    summary: Dict[str, Any]
 
 # Impersonation Schemas
-class ImpersonationRequest(BaseSchema):
-    """Schema for user impersonation request."""
+class ImpersonationRequest(BaseModel):
+    """User impersonation request."""
     target_user_id: UUID
     reason: str = Field(..., min_length=10, max_length=500)
-    duration_minutes: int = Field(default=60, ge=5, le=480)  # Max 8 hours
+    duration_minutes: int = Field(default=60, ge=5, le=480)  # 5 minutes to 8 hours
 
-class ImpersonationResponse(UUIDSchema, TimestampSchema):
-    """Schema for impersonation response."""
-    admin_user_id: UUID
+class ImpersonationResponse(BaseModel):
+    """Impersonation response."""
+    session_id: str
     target_user_id: UUID
-    session_token: str
-    reason: str
-    is_active: bool
-    started_at: datetime
     expires_at: datetime
-    ip_address: Optional[str]
+    access_token: str
 
-class ImpersonationEndRequest(BaseSchema):
-    """Schema for ending impersonation."""
-    session_token: str
+class ImpersonationEndRequest(BaseModel):
+    """End impersonation request."""
+    session_id: str
 
-# System Health Schemas
-class SystemHealthCheck(BaseSchema):
-    """Schema for system health check request."""
-    component: Optional[str] = Field(None, description="Specific component to check")
-    deep_check: bool = Field(default=False, description="Perform deep health check")
-
-class HealthCheckComponent(BaseSchema):
-    """Schema for health check component."""
+# Health Check Schemas
+class HealthCheckComponent(BaseModel):
+    """Health check component."""
     name: str
-    status: str = Field(..., pattern="^(healthy|degraded|unhealthy)$")
-    message: Optional[str] = None
-    response_time_ms: Optional[float] = None
+    status: str = Field(pattern="^(healthy|degraded|unhealthy)$")
+    response_time_ms: float
+    details: Dict[str, Any]
     last_checked: datetime
 
-class SystemHealthResponse(BaseSchema):
-    """Schema for system health response."""
-    overall_status: str = Field(..., pattern="^(healthy|degraded|unhealthy)$")
+class SystemHealthResponse(BaseModel):
+    """System health response."""
+    overall_status: str = Field(pattern="^(healthy|degraded|unhealthy)$")
     components: List[HealthCheckComponent]
-    uptime_seconds: float
-    version: str
-    environment: str
     timestamp: datetime
+    uptime_seconds: int
 
 # System Alert Schemas
-class SystemAlertBase(BaseSchema):
-    """Base schema for system alerts."""
-    title: str = Field(..., min_length=1, max_length=255)
+class SystemAlertBase(BaseModel):
+    """Base system alert schema."""
+    alert_type: str
+    severity: str = Field(pattern="^(info|warning|error|critical)$")
+    title: str = Field(..., min_length=1, max_length=200)
     message: str = Field(..., min_length=1, max_length=1000)
-    alert_type: str = Field(..., pattern="^(info|warning|error|success)$")
-    severity: str = Field(..., pattern="^(low|medium|high|critical)$")
-    target_type: str = Field(default="all", pattern="^(all|organization|user|role)$")
-    target_ids: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    is_dismissible: bool = True
-    auto_dismiss_after: Optional[int] = Field(None, ge=1, le=43200)  # Max 12 hours
-    starts_at: Optional[datetime] = None
-    ends_at: Optional[datetime] = None
+    source: str = Field(default="system")
+    metadata: Optional[Dict[str, Any]] = None
 
 class SystemAlertCreate(SystemAlertBase):
-    """Schema for creating system alerts."""
+    """System alert creation schema."""
     pass
 
-class SystemAlertUpdate(BaseSchema):
-    """Schema for updating system alerts."""
-    title: Optional[str] = Field(None, min_length=1, max_length=255)
-    message: Optional[str] = Field(None, min_length=1, max_length=1000)
-    alert_type: Optional[str] = Field(None, pattern="^(info|warning|error|success)$")
-    severity: Optional[str] = Field(None, pattern="^(low|medium|high|critical)$")
-    target_type: Optional[str] = Field(None, pattern="^(all|organization|user|role)$")
-    target_ids: Optional[Dict[str, Any]] = None
-    is_dismissible: Optional[bool] = None
-    auto_dismiss_after: Optional[int] = Field(None, ge=1, le=43200)
-    starts_at: Optional[datetime] = None
-    ends_at: Optional[datetime] = None
-    is_active: Optional[bool] = None
+class SystemAlertUpdate(BaseModel):
+    """System alert update schema."""
+    resolved: bool
+    resolved_by: Optional[UUID] = None
+    resolution_notes: Optional[str] = None
 
-class SystemAlertResponse(UUIDSchema, SystemAlertBase, TimestampSchema):
-    """Schema for system alert response."""
-    is_active: bool
-    created_by: UUID
+class SystemAlertResponse(SystemAlertBase):
+    """System alert response schema."""
+    id: UUID
+    resolved: bool
+    resolved_by: Optional[UUID] = None
+    resolution_notes: Optional[str] = None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
 
-# System Statistics Schemas
-class SystemStats(BaseSchema):
-    """Schema for system statistics."""
-    total_organizations: int
-    total_users: int
-    active_users_24h: int
-    total_locations: int
-    total_roles: int
-    total_audit_logs: int
-    total_security_events: int
-    database_size_mb: Optional[float] = None
-    cache_hit_rate: Optional[float] = None
-    average_response_time_ms: Optional[float] = None
-
-class SystemStatsResponse(BaseSchema):
-    """Schema for system statistics response."""
-    stats: SystemStats
-    collected_at: datetime
-    period: str = "current"
-
-# System Backup Schemas
-class SystemBackupCreate(BaseSchema):
-    """Schema for creating system backup."""
-    backup_type: str = Field(..., pattern="^(full|incremental|config_only)$")
-    description: Optional[str] = Field(None, max_length=500)
-    include_audit_logs: bool = True
-    include_user_data: bool = True
-
-class SystemBackupResponse(UUIDSchema, TimestampSchema):
-    """Schema for system backup response."""
-    backup_type: str
-    description: Optional[str] = None
-    status: str = Field(..., pattern="^(creating|completed|failed)$")
-    file_path: Optional[str] = None
-    file_size_mb: Optional[float] = None
-    created_by: UUID
-    completed_at: Optional[datetime] = None
-
-# System Maintenance Schemas
-class SystemMaintenanceCreate(BaseSchema):
-    """Schema for scheduling system maintenance."""
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(..., min_length=1, max_length=1000)
-    maintenance_type: str = Field(..., pattern="^(update|migration|backup|cleanup)$")
-    scheduled_start: datetime
-    estimated_duration_minutes: int = Field(..., ge=1, le=1440)  # Max 24 hours
-    notify_users: bool = True
-
-class SystemMaintenanceResponse(UUIDSchema, SystemMaintenanceCreate, TimestampSchema):
-    """Schema for system maintenance response."""
-    status: str = Field(..., pattern="^(scheduled|in_progress|completed|cancelled)$")
-    actual_start: Optional[datetime] = None
-    actual_end: Optional[datetime] = None
-    created_by: UUID
-
-# List Response Schemas
-class SystemConfigListResponse(BaseSchema):
-    """Schema for paginated system config list response."""
-    configs: List[SystemConfigResponse]
-    total: int
-    page: int
-    page_size: int
-    has_next: bool
-    has_prev: bool
-
-class LicenseListResponse(BaseSchema):
-    """Schema for paginated license list response."""
-    licenses: List[LicenseResponse]
-    total: int
-    page: int
-    page_size: int
-    has_next: bool
-    has_prev: bool
-
-class SystemAlertListResponse(BaseSchema):
-    """Schema for system alert list response."""
+class SystemAlertListResponse(BaseModel):
+    """System alert list response."""
     alerts: List[SystemAlertResponse]
     total: int
     page: int
-    page_size: int
-    total_pages: int
+    limit: int
+
+# Additional System Management Schemas
+class SystemStatsResponse(BaseModel):
+    """System statistics response."""
+    stats: SystemStats
+    timestamp: datetime
+    generated_by: UUID
+
+class SystemBackupCreate(BaseModel):
+    """System backup creation request."""
+    backup_type: str = Field(default="full", pattern="^(full|incremental|differential)$")
+    description: Optional[str] = None
+    include_user_data: bool = Field(default=True)
+    include_system_config: bool = Field(default=True)
+
+class SystemBackupResponse(BaseModel):
+    """System backup response."""
+    id: UUID
+    backup_type: str
+    status: str = Field(pattern="^(pending|running|completed|failed)$")
+    file_path: str
+    file_size_bytes: int
+    description: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    created_by: UUID
+
+class SystemMaintenanceCreate(BaseModel):
+    """System maintenance window creation."""
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=1000)
+    scheduled_start: datetime
+    estimated_duration_minutes: int = Field(..., ge=1, le=1440)  # 1 minute to 24 hours
+    maintenance_type: str = Field(default="planned", pattern="^(planned|emergency|routine)$")
+    affected_services: List[str] = Field(default_factory=list)
+
+class SystemMaintenanceResponse(BaseModel):
+    """System maintenance response."""
+    id: UUID
+    title: str
+    description: str
+    scheduled_start: datetime
+    estimated_duration_minutes: int
+    actual_duration_minutes: Optional[int] = None
+    maintenance_type: str
+    status: str = Field(pattern="^(scheduled|in_progress|completed|cancelled)$")
+    affected_services: List[str]
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_by: UUID

@@ -1,8 +1,8 @@
-"""Final migration with all models and proper relationships
+"""User Microservices Setup
 
-Revision ID: a280dd77b6ae
+Revision ID: b9dc0eebd99d
 Revises: 
-Create Date: 2025-09-03 10:01:56.731055+00:00
+Create Date: 2025-09-04 10:13:53.103893+00:00
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'a280dd77b6ae'
+revision = 'b9dc0eebd99d'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -102,8 +102,8 @@ def upgrade() -> None:
     op.create_table('location_groups',
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('color', sa.String(length=7), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
-    sa.Column('color', sa.String(length=7), nullable=True, comment='Hex color code for UI'),
     sa.Column('organization_id', sa.UUID(), nullable=False),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -267,16 +267,13 @@ def upgrade() -> None:
     op.create_index(op.f('ix_forensic_snapshots_resource_type'), 'forensic_snapshots', ['resource_type'], unique=False)
     op.create_index(op.f('ix_forensic_snapshots_snapshot_type'), 'forensic_snapshots', ['snapshot_type'], unique=False)
     op.create_index(op.f('ix_forensic_snapshots_status'), 'forensic_snapshots', ['status'], unique=False)
-    op.create_table('location_group_locations',
-    sa.Column('location_group_id', sa.UUID(), nullable=False),
+    op.create_table('location_group_associations',
     sa.Column('location_id', sa.UUID(), nullable=False),
-    sa.Column('organization_id', sa.UUID(), nullable=False),
+    sa.Column('location_group_id', sa.UUID(), nullable=False),
     sa.ForeignKeyConstraint(['location_group_id'], ['location_groups.id'], ),
     sa.ForeignKeyConstraint(['location_id'], ['locations.id'], ),
-    sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ),
-    sa.PrimaryKeyConstraint('location_group_id', 'location_id')
+    sa.PrimaryKeyConstraint('location_id', 'location_group_id')
     )
-    op.create_index(op.f('ix_location_group_locations_organization_id'), 'location_group_locations', ['organization_id'], unique=False)
     op.create_table('maintenance_windows',
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
@@ -480,8 +477,7 @@ def downgrade() -> None:
     op.drop_table('roles')
     op.drop_index(op.f('ix_maintenance_windows_id'), table_name='maintenance_windows')
     op.drop_table('maintenance_windows')
-    op.drop_index(op.f('ix_location_group_locations_organization_id'), table_name='location_group_locations')
-    op.drop_table('location_group_locations')
+    op.drop_table('location_group_associations')
     op.drop_index(op.f('ix_forensic_snapshots_status'), table_name='forensic_snapshots')
     op.drop_index(op.f('ix_forensic_snapshots_snapshot_type'), table_name='forensic_snapshots')
     op.drop_index(op.f('ix_forensic_snapshots_resource_type'), table_name='forensic_snapshots')

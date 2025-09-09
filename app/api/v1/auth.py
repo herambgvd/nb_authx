@@ -2,32 +2,35 @@
 Authentication API endpoints for AuthX.
 Provides comprehensive authentication, registration, and token management endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_active_user
 from app.db.session import get_async_db
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest, LoginResponse, TokenRefreshRequest, TokenRefreshResponse,
     PasswordResetRequest, PasswordResetConfirm, PasswordChangeRequest,
     RegisterRequest, RegisterResponse, EmailVerificationRequest, EmailVerificationConfirm,
-    MFAVerifyRequest, MFAVerifyResponse, LogoutRequest, LogoutResponse,
+    LogoutRequest, LogoutResponse,
     SessionListResponse, SessionRevokeRequest
 )
 from app.schemas.user import UserResponse
 from app.services.auth_service import auth_service
 from app.services.user_service import user_service
-from app.api.deps import get_current_active_user
 
 router = APIRouter()
 
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
-    request: Request,
-    login_data: LoginRequest,
-    db: AsyncSession = Depends(get_async_db)
+        request: Request,
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Authenticate user with comprehensive security checks.
@@ -39,10 +42,10 @@ async def login(
         "headers": dict(request.headers)
     }
 
-    # Authenticate user
+    # Authenticate user using form data
     try:
         user_data, auth_context = await auth_service.authenticate_user(
-            db, login_data.username, login_data.password, request_info
+            db, form_data.username, form_data.password, request_info
         )
     except HTTPException:
         raise
@@ -74,76 +77,35 @@ async def login(
             detail="Token creation failed"
         )
 
+    # Create user dictionary for response
+    user_response_data = {
+        "id": user_data["id"],
+        "email": user_data["email"],
+        "username": user_data["username"],
+        "first_name": user_data.get("first_name", ""),
+        "last_name": user_data.get("last_name", ""),
+        "is_verified": user_data["is_verified"],
+        "is_active": user_data["is_active"],
+        "organization_id": user_data["organization_id"],
+        "is_superuser": user_data.get("is_superuser", False),
+        "is_organization_admin": user_data.get("is_organization_admin", False)
+    }
+
     return LoginResponse(
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
         token_type="bearer",
         expires_in=tokens["expires_in"],
-        user_id=UUID(user_data["id"]),
-        organization_id=UUID(user_data["organization_id"]) if user_data["organization_id"] else None,
-        requires_mfa=False,
-        device_registered=auth_context.get('device_registered', False)
+        user=user_response_data,
+        message="Login successful"
     )
 
-@router.post("/mfa/verify", response_model=MFAVerifyResponse)
-async def verify_mfa(
-    mfa_data: MFAVerifyRequest,
-    db: AsyncSession = Depends(get_async_db)
-):
-    """
-    Verify MFA code and complete authentication.
-    """
-    # Verify MFA session token
-    try:
-        from app.core.security import verify_token
-        payload = verify_token(mfa_data.session_token)
-        user_id = payload.get("user_id")
 
-        if not user_id or payload.get("type") != "mfa_session":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid MFA session"
-            )
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid MFA session"
-        )
-
-    # Verify MFA code
-    is_valid = await auth_service.verify_mfa_code(db, UUID(user_id), mfa_data.code)
-
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid MFA code"
-        )
-
-    # Get user and create final tokens
-    user = await user_service.get_user_by_id(db, UUID(user_id))
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    tokens = await auth_service.create_tokens_for_user(user)
-
-    return MFAVerifyResponse(
-        access_token=tokens["access_token"],
-        refresh_token=tokens["refresh_token"],
-        token_type="bearer",
-        expires_in=tokens["expires_in"],
-        user_id=user.id,
-        organization_id=user.organization_id,
-        requires_mfa=False
-    )
-
-@router.post("/register", response_model=RegisterResponse)
+@router.post("/register", response_model=RegisterResponse, status_code=201)
 async def register(
-    register_data: RegisterRequest,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_async_db)
+        register_data: RegisterRequest,
+        background_tasks: BackgroundTasks,
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Register a new user account.
@@ -159,10 +121,19 @@ async def register(
                 lambda: None
             )
 
+        # Create user dictionary for response
+        user_data = {
+            "id": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "is_verified": user.is_verified,
+            "is_active": user.is_active
+        }
+
         return RegisterResponse(
-            user_id=user.id,
-            email=user.email,
-            username=user.username,
+            user=user_data,
             verification_required=not user.is_verified,
             message="Registration successful. Please check your email for verification."
         )
@@ -172,10 +143,11 @@ async def register(
             detail=str(e)
         )
 
+
 @router.post("/refresh", response_model=TokenRefreshResponse)
 async def refresh_token(
-    refresh_data: TokenRefreshRequest,
-    db: AsyncSession = Depends(get_async_db)
+        refresh_data: TokenRefreshRequest,
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Refresh access token using refresh token.
@@ -196,10 +168,11 @@ async def refresh_token(
             detail="Invalid refresh token"
         )
 
+
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(
-    logout_data: LogoutRequest,
-    current_user: User = Depends(get_current_active_user)
+        logout_data: LogoutRequest,
+        current_user: User = Depends(get_current_active_user)
 ):
     """
     Logout user and optionally revoke all sessions.
@@ -214,11 +187,12 @@ async def logout(
         sessions_revoked=sessions_revoked
     )
 
+
 @router.post("/password/reset")
 async def request_password_reset(
-    reset_data: PasswordResetRequest,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_async_db)
+        reset_data: PasswordResetRequest,
+        background_tasks: BackgroundTasks,
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Request password reset email.
@@ -237,10 +211,11 @@ async def request_password_reset(
 
     return {"message": "If the email exists, a password reset link has been sent"}
 
+
 @router.post("/password/reset/confirm")
 async def confirm_password_reset(
-    reset_data: PasswordResetConfirm,
-    db: AsyncSession = Depends(get_async_db)
+        reset_data: PasswordResetConfirm,
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Confirm password reset with token.
@@ -248,14 +223,15 @@ async def confirm_password_reset(
     # In a full implementation, verify reset token and update password
     return {"message": "Password reset successful"}
 
-@router.post("/password/change")
+
+@router.post("/me/change-password")
 async def change_password(
-    change_data: PasswordChangeRequest,
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_async_db)
+        change_data: PasswordChangeRequest,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Change user password.
+    Change current user password with proper validation.
     """
     success = await auth_service.change_password(
         db, current_user.id, change_data.current_password, change_data.new_password
@@ -269,11 +245,12 @@ async def change_password(
 
     return {"message": "Password changed successfully"}
 
+
 @router.post("/email/verify")
 async def request_email_verification(
-    verify_data: EmailVerificationRequest,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_async_db)
+        verify_data: EmailVerificationRequest,
+        background_tasks: BackgroundTasks,
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Request email verification.
@@ -290,10 +267,11 @@ async def request_email_verification(
 
     return {"message": "Verification email sent if account exists"}
 
+
 @router.post("/email/verify/confirm")
 async def confirm_email_verification(
-    confirm_data: EmailVerificationConfirm,
-    db: AsyncSession = Depends(get_async_db)
+        confirm_data: EmailVerificationConfirm,
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Confirm email verification with token.
@@ -314,19 +292,21 @@ async def confirm_email_verification(
             detail="Invalid or expired verification token"
         )
 
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: User = Depends(get_current_active_user)
+        current_user: User = Depends(get_current_active_user)
 ):
     """
     Get current user information.
     """
     return UserResponse.from_orm(current_user)
 
+
 @router.get("/sessions", response_model=SessionListResponse)
 async def get_user_sessions(
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_async_db)
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Get user's active sessions.
@@ -338,14 +318,11 @@ async def get_user_sessions(
     sessions = [
         {
             "session_id": str(device.id),
-            "user_id": current_user.id,
-            "device_id": device.id,
+            "device_info": f"{device.device_type} - {device.device_name}" if device.device_name else device.device_type,
             "ip_address": device.ip_address,
             "user_agent": device.user_agent,
-            "location": device.location,
             "created_at": device.created_at,
-            "last_activity": device.last_seen or device.created_at,
-            "expires_at": device.created_at,  # Would calculate from token
+            "last_active": device.last_seen or device.created_at,
             "is_current": True  # Would determine from current session
         }
         for device in devices
@@ -353,11 +330,12 @@ async def get_user_sessions(
 
     return SessionListResponse(sessions=sessions, total=len(sessions))
 
+
 @router.post("/sessions/revoke")
 async def revoke_session(
-    revoke_data: SessionRevokeRequest,
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_async_db)
+        revoke_data: SessionRevokeRequest,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_async_db)
 ):
     """
     Revoke a specific session.

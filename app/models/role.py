@@ -10,6 +10,14 @@ import uuid
 
 from app.models.base import TenantBaseModel, UUIDBaseModel
 
+# Association table for many-to-many relationship between users and roles
+user_roles = Table(
+    'user_roles',
+    UUIDBaseModel.metadata,
+    Column('user_id', UUID(as_uuid=True), ForeignKey('users.id'), primary_key=True),
+    Column('role_id', UUID(as_uuid=True), ForeignKey('roles.id'), primary_key=True)
+)
+
 # Association table for many-to-many relationship between roles and permissions
 role_permissions = Table(
     'role_permissions',
@@ -17,6 +25,7 @@ role_permissions = Table(
     Column('role_id', UUID(as_uuid=True), ForeignKey('roles.id'), primary_key=True),
     Column('permission_id', UUID(as_uuid=True), ForeignKey('permissions.id'), primary_key=True)
 )
+
 
 class Role(TenantBaseModel):
     """Role model for role-based access control with async support."""
@@ -43,20 +52,13 @@ class Role(TenantBaseModel):
     # Priority for role hierarchy (higher number = higher priority)
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    # User assignment relationship
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id"),
-        nullable=True,
-        index=True
-    )
-
     # Relationships
-    user = relationship("User", back_populates="roles", foreign_keys=[user_id])
+    users = relationship("User", secondary=user_roles, back_populates="roles")
     permissions = relationship("Permission", secondary=role_permissions, back_populates="roles")
+    organization = relationship("Organization", back_populates="roles")
 
     def __repr__(self) -> str:
-        return f"<Role(id={self.id}, name='{self.name}', organization_id={self.organization_id})>"
+        return f"<Role {self.name} in org {self.organization_id}>"
 
     @property
     def display_name(self) -> str:
@@ -78,12 +80,18 @@ class Role(TenantBaseModel):
 
         return False
 
+    @property
+    def user_count(self) -> int:
+        """Get the number of users assigned to this role."""
+        return len(self.users) if self.users else 0
+
+
 class Permission(UUIDBaseModel):
-    """Permission model for granular access control."""
+    """Permission model for fine-grained access control."""
 
     __tablename__ = "permissions"
 
-    # Permission identification
+    # Basic permission fields
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -91,20 +99,14 @@ class Permission(UUIDBaseModel):
     resource: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 
-    # Permission configuration
+    # System permission flag
     is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    # Additional metadata
-    metadata_config: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSONB, nullable=True, default=lambda: {}
-    )
 
     # Relationships
     roles = relationship("Role", secondary=role_permissions, back_populates="permissions")
 
     def __repr__(self) -> str:
-        return f"<Permission(id={self.id}, name='{self.name}', resource='{self.resource}', action='{self.action}')>"
+        return f"<Permission {self.name} ({self.resource}:{self.action})>"
 
     @property
     def display_name(self) -> str:

@@ -17,6 +17,7 @@ class Organization(UUIDBaseModel):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
 
     # Contact information
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -49,11 +50,12 @@ class Organization(UUIDBaseModel):
     location_groups = relationship("LocationGroup", back_populates="organization")
     roles = relationship("Role", back_populates="organization")
     settings = relationship("OrganizationSettings", back_populates="organization", uselist=False)
-    licenses = relationship("License", back_populates="organization")
+    license = relationship("License", back_populates="organization", uselist=False)
     audit_logs = relationship("AuditLog", back_populates="organization")
     security_events = relationship("SecurityEvent", back_populates="organization")
     compliance_reports = relationship("ComplianceReport", back_populates="organization")
     forensic_snapshots = relationship("ForensicSnapshot", back_populates="organization")
+    user_location_accesses = relationship("UserLocationAccess", back_populates="organization")
 
     def __repr__(self) -> str:
         return f"<Organization(id={self.id}, name='{self.name}', slug='{self.slug}')>"

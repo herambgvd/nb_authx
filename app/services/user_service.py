@@ -91,7 +91,7 @@ class UserService:
             .options(
                 selectinload(User.organization),
                 selectinload(User.roles),
-                selectinload(User.devices)
+                selectinload(User.user_devices)
             )
             .where(User.id == user_id)
         )
@@ -113,7 +113,7 @@ class UserService:
             .options(
                 selectinload(User.organization),
                 selectinload(User.roles),
-                selectinload(User.devices)
+                selectinload(User.user_devices)
             )
             .where(User.email == email.lower())
         )
@@ -135,7 +135,7 @@ class UserService:
             .options(
                 selectinload(User.organization),
                 selectinload(User.roles),
-                selectinload(User.devices)
+                selectinload(User.user_devices)
             )
             .where(User.username == username.lower())
         )
@@ -162,7 +162,7 @@ class UserService:
             .options(
                 selectinload(User.organization),
                 selectinload(User.roles),
-                selectinload(User.devices)
+                selectinload(User.user_devices)
             )
             .where(
                 or_(

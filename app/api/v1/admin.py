@@ -1,229 +1,238 @@
 """
-Super Admin API endpoints for AuthX.
-Provides comprehensive super admin functionality for system management.
+Admin Management API endpoints for AuthX.
+Handles super admin and organization admin operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
-from datetime import datetime
+from typing import List
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_active_user, get_current_super_admin, get_current_organization_admin
 from app.db.session import get_async_db
-from app.api.deps import get_current_super_admin, get_current_active_user
-from app.schemas.admin import (
-    SuperAdminDashboard, OrganizationApprovalRequest, OrganizationRejectionRequest,
-    UserManagementAction, AuditLogFilter, UserFilter, SystemAlert, PerformanceMetrics
-)
-from app.services.super_admin_service import super_admin_service
-from app.services.monitoring_service import monitoring_service
 from app.models.user import User
+from app.schemas.admin_management import (
+    AdminResponse,
+    AdminListResponse,
+    CreateSuperAdminRequest,
+    CreateOrganizationAdminRequest,
+    OnboardOrganizationRequest,
+    AdminUpdate
+)
+from app.services.admin_management_service import admin_management_service
 
 router = APIRouter()
 
-@router.get("/dashboard", response_model=SuperAdminDashboard)
-async def get_dashboard(
-    current_user: User = Depends(get_current_super_admin),
+
+@router.post("/bootstrap-super-admin", response_model=AdminResponse)
+async def bootstrap_super_admin(
+    request: CreateSuperAdminRequest,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Get super admin dashboard with system statistics."""
-    return await super_admin_service.get_dashboard_stats(db)
+    """
+    Bootstrap the first super admin in the system.
+    Only works when no super admins exist in the system.
+    """
+    # Check if any super admins already exist
+    existing_super_admins = await admin_management_service.get_all_super_admins(db)
 
-@router.get("/organizations/pending")
-async def get_pending_organizations(
-    current_user: User = Depends(get_current_super_admin),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Get organizations pending approval."""
-    return await super_admin_service.get_pending_organizations(db)
-
-@router.post("/organizations/approve")
-async def approve_organization(
-    request: OrganizationApprovalRequest,
-    current_user: User = Depends(get_current_super_admin),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Approve an organization registration."""
-    success = await super_admin_service.approve_organization(
-        db=db,
-        organization_id=request.organization_id,
-        approved_by=current_user.id,
-        approval_notes=request.approval_notes
-    )
-
-    if not success:
+    if existing_super_admins:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to approve organization"
+            detail="Super admin already exists. Use the regular super admin creation endpoint."
         )
 
-    return {"message": "Organization approved successfully"}
-
-@router.post("/organizations/reject")
-async def reject_organization(
-    request: OrganizationRejectionRequest,
-    current_user: User = Depends(get_current_super_admin),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Reject an organization registration."""
-    success = await super_admin_service.reject_organization(
-        db=db,
-        organization_id=request.organization_id,
-        rejected_by=current_user.id,
-        rejection_reason=request.rejection_reason
+    user, admin = await admin_management_service.create_super_admin(
+        db, request, None  # No creator for bootstrap admin
     )
 
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to reject organization"
-        )
+    # Convert User object to dictionary for proper validation
+    user_dict = {
+        "id": str(user.id),
+        "email": user.email,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": user.is_active,
+        "is_verified": user.is_verified,
+        "is_superuser": user.is_superuser,
+        "organization_id": str(user.organization_id) if user.organization_id else None
+    }
 
-    return {"message": "Organization rejected successfully"}
+    # Create response data
+    response_data = {
+        "id": admin.id,
+        "user_id": admin.user_id,
+        "admin_level": admin.admin_level,
+        "permissions": admin.permissions,
+        "is_active": admin.is_active,
+        "organization_id": admin.organization_id,
+        "created_by": admin.created_by,
+        "last_login": admin.last_login,
+        "created_at": admin.created_at,
+        "updated_at": admin.updated_at,
+        "user": user_dict
+    }
 
-@router.get("/users")
-async def get_system_users(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
-    search: Optional[str] = Query(None),
-    organization_id: Optional[UUID] = Query(None),
-    current_user: User = Depends(get_current_super_admin),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Get system users with pagination and filtering."""
-    return await super_admin_service.get_system_users(
-        db=db,
-        page=page,
-        limit=limit,
-        search=search,
-        organization_id=organization_id
-    )
+    return AdminResponse(**response_data)
 
-@router.post("/users/manage")
-async def manage_user(
-    request: UserManagementAction,
-    current_user: User = Depends(get_current_super_admin),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Perform user management actions."""
-    success = await super_admin_service.manage_user(
-        db=db,
-        user_id=request.user_id,
-        action=request.action,
-        performed_by=current_user.id,
-        details=request.details
-    )
 
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to {request.action} user"
-        )
-
-    return {"message": f"User {request.action} completed successfully"}
-
-@router.get("/audit-logs")
-async def get_audit_logs(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
-    action_filter: Optional[str] = Query(None),
-    user_id: Optional[UUID] = Query(None),
-    organization_id: Optional[UUID] = Query(None),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    current_user: User = Depends(get_current_super_admin),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Get audit logs with filtering and pagination."""
-    return await super_admin_service.get_audit_logs(
-        db=db,
-        page=page,
-        limit=limit,
-        action_filter=action_filter,
-        user_id=user_id,
-        organization_id=organization_id,
-        start_date=start_date,
-        end_date=end_date
-    )
-
-@router.get("/system/health")
-async def get_system_health(
+@router.post("/super-admin", response_model=AdminResponse)
+async def create_super_admin(
+    request: CreateSuperAdminRequest,
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_super_admin)
 ):
-    """Get system health status."""
-    return monitoring_service.get_health_status()
+    """
+    Create a new super admin.
+    Only accessible by existing super admins.
+    """
+    user, admin = await admin_management_service.create_super_admin(
+        db, request, current_user.id
+    )
+    return AdminResponse.model_validate(admin)
 
-@router.get("/system/metrics/current")
-async def get_current_metrics(
+
+@router.post("/onboard-organization", response_model=dict)
+async def onboard_organization(
+    request: OnboardOrganizationRequest,
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_super_admin)
 ):
-    """Get current system metrics."""
-    metrics = monitoring_service.get_current_metrics()
-    if not metrics:
+    """
+    Onboard a new organization with its admin.
+    Only accessible by super admins.
+    """
+    org, admin_user, admin, license = await admin_management_service.onboard_organization_with_admin(
+        db, request, current_user.id
+    )
+
+    return {
+        "organization": {
+            "id": org.id,
+            "name": org.name,
+            "slug": org.slug
+        },
+        "admin": {
+            "id": admin.id,
+            "user_id": admin_user.id,
+            "email": admin_user.email,
+            "full_name": admin_user.full_name
+        },
+        "license": {
+            "license_key": license.license_key,
+            "valid_until": license.valid_until
+        }
+    }
+
+
+@router.post("/organization-admin", response_model=AdminResponse)
+async def create_organization_admin(
+    request: CreateOrganizationAdminRequest,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_super_admin)
+):
+    """
+    Create a new organization admin for an existing organization.
+    Only accessible by super admins.
+    """
+    user, admin = await admin_management_service.create_organization_admin(
+        db, request, current_user.id
+    )
+    return AdminResponse.model_validate(admin)
+
+
+@router.get("/organization/{organization_id}/admins", response_model=AdminListResponse)
+async def get_organization_admins(
+    organization_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get all admins for an organization.
+    Accessible by super admins and organization admins of the same organization.
+    """
+    # Check permissions
+    admin = await admin_management_service.get_admin_by_user_id(db, current_user.id)
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access admin information"
+        )
+
+    if not admin.is_super_admin and admin.organization_id != organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this organization's admins"
+        )
+
+    admins = await admin_management_service.get_organization_admins(db, organization_id)
+
+    return AdminListResponse(
+        items=[AdminResponse.model_validate(admin) for admin in admins],
+        total=len(admins)
+    )
+
+
+@router.get("/super-admins", response_model=AdminListResponse)
+async def get_super_admins(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_super_admin)
+):
+    """
+    Get all super admins.
+    Only accessible by super admins.
+    """
+    admins = await admin_management_service.get_all_super_admins(db)
+
+    return AdminListResponse(
+        items=[AdminResponse.model_validate(admin) for admin in admins],
+        total=len(admins)
+    )
+
+
+@router.put("/admin/{admin_id}", response_model=AdminResponse)
+async def update_admin(
+    admin_id: UUID,
+    update_data: AdminUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_super_admin)
+):
+    """
+    Update admin record.
+    Only accessible by super admins.
+    """
+    admin = await admin_management_service.update_admin(db, admin_id, update_data)
+    return AdminResponse.model_validate(admin)
+
+
+@router.delete("/admin/{admin_id}")
+async def deactivate_admin(
+    admin_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_super_admin)
+):
+    """
+    Deactivate admin record.
+    Only accessible by super admins.
+    """
+    await admin_management_service.deactivate_admin(db, admin_id)
+    return {"message": "Admin deactivated successfully"}
+
+
+@router.get("/me", response_model=AdminResponse)
+async def get_current_admin_info(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get current user's admin information.
+    """
+    admin = await admin_management_service.get_admin_by_user_id(db, current_user.id)
+    if not admin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No metrics available"
+            detail="Admin record not found"
         )
-    return metrics
 
-@router.get("/system/metrics/history")
-async def get_metrics_history(
-    hours: int = Query(24, ge=1, le=168),  # Max 7 days
-    current_user: User = Depends(get_current_super_admin)
-):
-    """Get system metrics history."""
-    return monitoring_service.get_metrics_history(hours=hours)
-
-@router.get("/system/performance")
-async def get_performance_summary(
-    current_user: User = Depends(get_current_super_admin)
-):
-    """Get performance summary for the last 24 hours."""
-    return monitoring_service.get_performance_summary()
-
-@router.get("/system/alerts")
-async def get_system_alerts(
-    limit: int = Query(50, ge=1, le=100),
-    current_user: User = Depends(get_current_super_admin)
-):
-    """Get recent system alerts."""
-    return await monitoring_service.get_recent_alerts(limit=limit)
-
-@router.post("/system/alerts")
-async def create_system_alert(
-    alert_type: str,
-    message: str,
-    severity: str = "warning",
-    current_user: User = Depends(get_current_super_admin)
-):
-    """Create a system alert."""
-    await monitoring_service.create_alert(alert_type, message, severity)
-    return {"message": "Alert created successfully"}
-
-@router.get("/system/prometheus-metrics")
-async def get_prometheus_metrics(
-    current_user: User = Depends(get_current_super_admin)
-):
-    """Get Prometheus formatted metrics."""
-    from fastapi.responses import Response
-    metrics = monitoring_service.get_prometheus_metrics()
-    return Response(content=metrics, media_type="text/plain")
-
-@router.post("/init-super-admin")
-async def initialize_super_admin(
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Initialize the super admin user (development/setup only)."""
-    try:
-        user = await super_admin_service.create_super_admin_user(db)
-        if user:
-            return {
-                "message": "Super admin user created successfully",
-                "email": user.email
-            }
-        else:
-            return {"message": "Super admin user already exists"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create super admin: {str(e)}"
-        )
+    return AdminResponse.model_validate(admin)

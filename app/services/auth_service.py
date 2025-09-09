@@ -312,45 +312,6 @@ class AuthService:
                 detail="Invalid refresh token"
             )
 
-    async def verify_mfa_code(
-        self,
-        db: AsyncSession,
-        user_id: UUID,
-        code: str,
-        mfa_type: str = "totp"
-    ) -> bool:
-        """
-        Verify MFA code for a user.
-
-        Args:
-            db: Database session
-            user_id: User ID
-            code: MFA code
-            mfa_type: Type of MFA (totp, sms, email)
-
-        Returns:
-            bool: True if code is valid
-        """
-        # Get user
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-
-        if not user or not user.mfa_enabled:
-            return False
-
-        if mfa_type == "totp" and user.mfa_secret:
-            # Verify TOTP code
-            try:
-                import pyotp
-                totp = pyotp.TOTP(user.mfa_secret)
-                return totp.verify(code, valid_window=1)
-            except ImportError:
-                # Fallback if pyotp is not available
-                return code == "123456"  # Development fallback
-
-        # Add support for SMS/Email MFA here
-        return False
-
     async def change_password(
         self,
         db: AsyncSession,
@@ -421,7 +382,7 @@ class AuthService:
             ).options(
                 selectinload(User.organization),
                 selectinload(User.roles),
-                selectinload(User.devices)
+                selectinload(User.user_devices)
             )
         )
         user = result.scalar_one_or_none()
@@ -462,27 +423,49 @@ class AuthService:
             )
             device = result.scalar_one_or_none()
 
+            # Get IP address from request info
+            ip_address = request_info.get("ip_address", "127.0.0.1")
+            user_agent = request_info.get("user_agent", "Unknown")
+
+            # Parse device type from user agent
+            device_type = "desktop"  # Default
+            if any(mobile in user_agent.lower() for mobile in ["mobile", "android", "iphone"]):
+                device_type = "mobile"
+            elif any(tablet in user_agent.lower() for tablet in ["tablet", "ipad"]):
+                device_type = "tablet"
+
             if not device:
-                # Create new device record
+                # Create new device record with all required fields
                 device = UserDevice(
                     user_id=user_id,
                     device_fingerprint=device_fingerprint,
-                    device_name=request_info.get("user_agent", "Unknown Device")[:100],
-                    ip_address=request_info.get("ip_address"),
+                    device_name=user_agent[:100] if user_agent else "Unknown Device",
+                    device_type=device_type,
+                    user_agent=user_agent,
+                    ip_address=ip_address,
+                    first_login_ip=ip_address,  # Required field
+                    last_login_ip=ip_address,   # Required field
                     last_seen=datetime.utcnow(),
-                    is_trusted=False
+                    is_trusted=False,
+                    is_active=True,
+                    login_count=1
                 )
                 db.add(device)
             else:
                 # Update existing device
                 device.last_seen = datetime.utcnow()
-                device.ip_address = request_info.get("ip_address")
+                device.last_login_ip = ip_address
+                device.login_count += 1
+                if user_agent:
+                    device.user_agent = user_agent
 
             await db.commit()
+            await db.refresh(device)
             return device
 
         except Exception as e:
             await db.rollback()
+            logger.error(f"Error in device tracking: {e}")
             return None
 
     async def _handle_device_tracking(

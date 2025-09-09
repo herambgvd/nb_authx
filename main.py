@@ -16,7 +16,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.core.config import settings
 from app.core.infrastructure import init_redis, close_redis
 from app.api.api import api_router
-from app.db.session import engine, close_db_connections
+from app.db.session import close_db_connections
 from app.middleware.monitoring import MonitoringMiddleware
 from app.services.super_admin_service import super_admin_service
 from app.services.monitoring_service import monitoring_service
@@ -81,7 +81,9 @@ app = FastAPI(
     docs_url=settings.DOCS_URL if settings.DOCS_ENABLED else None,
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
     openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
-    lifespan=lifespan
+    lifespan=lifespan,
+    # Fix 307 redirects by disabling automatic trailing slash redirects
+    redirect_slashes=False
 )
 
 # Add monitoring middleware first
@@ -126,11 +128,24 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors with detailed information."""
+    # Convert error details to JSON-serializable format
+    error_details = []
+    for error in exc.errors():
+        error_dict = {
+            "loc": list(error.get("loc", [])),
+            "msg": str(error.get("msg", "")),
+            "type": str(error.get("type", ""))
+        }
+        if "input" in error:
+            # Convert input to string to avoid serialization issues
+            error_dict["input"] = str(error["input"])
+        error_details.append(error_dict)
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "Validation Error",
-            "details": exc.errors(),
+            "details": error_details,
             "status_code": status.HTTP_422_UNPROCESSABLE_ENTITY,
             "timestamp": time.time(),
             "path": request.url.path

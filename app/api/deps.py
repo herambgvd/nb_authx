@@ -13,7 +13,9 @@ from app.db.session import get_async_db
 from app.core.config import settings
 from app.models.user import User
 from app.models.organization import Organization
+from app.models.admin import Admin
 from app.services.user_service import user_service
+from app.services.admin_management_service import admin_management_service
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,7 @@ async def get_current_organization_admin(
     current_user: User = Depends(get_current_active_user)
 ) -> User:
     """
-    Get current user and verify they are an organization admin.
+    Get current user and verify they are an organization admin or super admin.
     """
     if not (current_user.is_organization_admin or current_user.is_superuser):
         raise HTTPException(
@@ -96,26 +98,41 @@ async def get_current_organization_admin(
 
     return current_user
 
-async def get_current_user_organization(
+async def get_current_admin_with_org_scope(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_db)
-) -> Organization:
+) -> tuple[User, Admin]:
     """
-    Get the organization of the current user.
+    Get current user and their admin record with organization scope verification.
     """
-    if not current_user.organization_id:
+    admin = await admin_management_service.get_admin_by_user_id(db, current_user.id)
+
+    if not admin or not admin.is_active:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User is not associated with any organization"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
         )
 
-    if not current_user.organization:
+    return current_user, admin
+
+async def verify_organization_access(
+    organization_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_async_db)
+) -> User:
+    """
+    Verify that the current user has access to the specified organization.
+    """
+    if current_user.is_superuser:
+        return current_user
+
+    if not current_user.organization_id or str(current_user.organization_id) != organization_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this organization is not authorized"
         )
 
-    return current_user.organization
+    return current_user
 
 def get_request_context(request: Request) -> Dict[str, Any]:
     """

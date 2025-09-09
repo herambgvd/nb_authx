@@ -2,8 +2,7 @@
 Main API router for AuthX application.
 Combines all API endpoints into a single router with proper organization.
 """
-from fastapi import APIRouter, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter
 
 from app.api.v1 import (
     auth,
@@ -19,22 +18,8 @@ from app.api.v1 import (
 # Create main API router
 api_router = APIRouter()
 
-# Health check endpoint
-@api_router.get("/health", tags=["Health"])
-async def health_check():
-    """
-    Health check endpoint for monitoring and load balancers.
-    """
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "status": "healthy",
-            "service": "AuthX",
-            "version": "1.0.0"
-        }
-    )
 
-# Include all v1 API routers with proper prefixes and tags
+# Include API version 1 routers with proper prefixes and tags
 api_router.include_router(
     auth.router,
     prefix="/auth",
@@ -68,17 +53,17 @@ api_router.include_router(
 api_router.include_router(
     admin.router,
     prefix="/admin",
-    tags=["Administration"]
+    tags=["Admin Management"]
 )
 
 api_router.include_router(
     audit.router,
     prefix="/audit",
-    tags=["Audit & Logging"]
+    tags=["Audit & Security"]
 )
 
 api_router.include_router(
     operations.router,
-    prefix="/ops",
+    prefix="/operations",
     tags=["Operations"]
 )

@@ -1,25 +1,88 @@
 """
-Organization schemas for the AuthX service.
-This module provides Pydantic models for organization-related API requests and responses.
+Organization schemas for AuthX API.
+Defines Pydantic models for organization data validation and serialization.
 """
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, validator, EmailStr
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
-
-from pydantic import BaseModel, EmailStr, Field, validator
-
-from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema
+import re
 
 # Base Organization Schema
-class OrganizationBase(BaseSchema):
-    """Base schema for organization data."""
-    name: str = Field(..., min_length=1, max_length=255)
-    slug: str = Field(..., min_length=3, max_length=100)
+class OrganizationBase(BaseModel):
+    """Base organization schema with common fields."""
+    name: str = Field(..., min_length=1, max_length=255, description="Organization name")
+    description: Optional[str] = Field(None, max_length=1000, description="Organization description")
+    domain: Optional[str] = Field(None, max_length=255, description="Organization domain")
+    email: Optional[EmailStr] = Field(None, description="Organization contact email")
+    phone: Optional[str] = Field(None, max_length=20, description="Organization phone number")
+    website: Optional[str] = Field(None, max_length=500, description="Organization website URL")
+
+    # Address fields
+    address_line1: Optional[str] = Field(None, max_length=255, description="Address line 1")
+    address_line2: Optional[str] = Field(None, max_length=255, description="Address line 2")
+    city: Optional[str] = Field(None, max_length=100, description="City")
+    state: Optional[str] = Field(None, max_length=100, description="State/Province")
+    postal_code: Optional[str] = Field(None, max_length=20, description="Postal/ZIP code")
+    country: Optional[str] = Field(None, max_length=100, description="Country")
+
+    # Settings
+    max_users: Optional[int] = Field(None, ge=1, description="Maximum number of users")
+    max_locations: Optional[int] = Field(None, ge=1, description="Maximum number of locations")
+    logo_url: Optional[str] = Field(None, max_length=500, description="Organization logo URL")
+    subscription_tier: str = Field("free", description="Subscription tier")
+    billing_email: Optional[EmailStr] = Field(None, description="Billing contact email")
+
+    @validator('name')
+    def validate_name(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Organization name cannot be empty')
+        return v.strip()
+
+    @validator('domain')
+    def validate_domain(cls, v):
+        if v:
+            # Basic domain validation
+            domain_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$'
+            if not re.match(domain_pattern, v):
+                raise ValueError('Invalid domain format')
+        return v
+
+    @validator('website')
+    def validate_website(cls, v):
+        if v:
+            # Basic URL validation
+            if not v.startswith(('http://', 'https://')):
+                v = f'https://{v}'
+            # Simple URL pattern check
+            url_pattern = r'^https?://[^\s/$.?#].[^\s]*$'
+            if not re.match(url_pattern, v):
+                raise ValueError('Invalid website URL format')
+        return v
+
+    @validator('subscription_tier')
+    def validate_subscription_tier(cls, v):
+        allowed_tiers = ['free', 'basic', 'premium', 'enterprise']
+        if v not in allowed_tiers:
+            raise ValueError(f'Subscription tier must be one of: {", ".join(allowed_tiers)}')
+        return v
+
+
+# Organization Create Schema
+class OrganizationCreate(OrganizationBase):
+    """Schema for creating a new organization."""
+    pass
+
+
+# Organization Update Schema
+class OrganizationUpdate(BaseModel):
+    """Schema for updating an organization."""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
+    domain: Optional[str] = Field(None, max_length=255)
     email: Optional[EmailStr] = None
     phone: Optional[str] = Field(None, max_length=20)
     website: Optional[str] = Field(None, max_length=500)
-    logo_url: Optional[str] = Field(None, max_length=500)
 
     # Address fields
     address_line1: Optional[str] = Field(None, max_length=255)
@@ -29,169 +92,82 @@ class OrganizationBase(BaseSchema):
     postal_code: Optional[str] = Field(None, max_length=20)
     country: Optional[str] = Field(None, max_length=100)
 
-    subscription_tier: str = Field(default="free", pattern="^(free|starter|professional|enterprise)$")
+    # Settings
+    is_active: Optional[bool] = None
+    max_users: Optional[int] = Field(None, ge=1)
+    max_locations: Optional[int] = Field(None, ge=1)
+    logo_url: Optional[str] = Field(None, max_length=500)
+    subscription_tier: Optional[str] = None
     billing_email: Optional[EmailStr] = None
 
-    @validator('slug')
-    def validate_slug(cls, v):
-        """Validate organization slug format."""
-        import re
-        if not re.match(r'^[a-z0-9-]+$', v):
-            raise ValueError('Slug must contain only lowercase letters, numbers, and hyphens')
+    @validator('name')
+    def validate_name(cls, v):
+        if v is not None and (not v or not v.strip()):
+            raise ValueError('Organization name cannot be empty')
+        return v.strip() if v else v
+
+    @validator('subscription_tier')
+    def validate_subscription_tier(cls, v):
+        if v is not None:
+            allowed_tiers = ['free', 'basic', 'premium', 'enterprise']
+            if v not in allowed_tiers:
+                raise ValueError(f'Subscription tier must be one of: {", ".join(allowed_tiers)}')
         return v
 
-# Organization Create Schema
-class OrganizationCreate(OrganizationBase):
-    """Schema for creating a new organization."""
-    max_users: Optional[int] = Field(None, ge=1)
-    max_locations: Optional[int] = Field(None, ge=1)
-
-# Organization Update Schema
-class OrganizationUpdate(BaseSchema):
-    """Schema for updating an existing organization."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = Field(None, max_length=20)
-    website: Optional[str] = Field(None, max_length=500)
-    logo_url: Optional[str] = Field(None, max_length=500)
-
-    address_line1: Optional[str] = Field(None, max_length=255)
-    address_line2: Optional[str] = Field(None, max_length=255)
-    city: Optional[str] = Field(None, max_length=100)
-    state: Optional[str] = Field(None, max_length=100)
-    postal_code: Optional[str] = Field(None, max_length=20)
-    country: Optional[str] = Field(None, max_length=100)
-
-    is_active: Optional[bool] = None
-    max_users: Optional[int] = Field(None, ge=1)
-    max_locations: Optional[int] = Field(None, ge=1)
-    subscription_tier: Optional[str] = Field(None, pattern="^(free|starter|professional|enterprise)$")
-    billing_email: Optional[EmailStr] = None
 
 # Organization Response Schema
-class OrganizationResponse(UUIDSchema, OrganizationBase, TimestampSchema):
-    """Schema for organization response data."""
+class OrganizationResponse(OrganizationBase):
+    """Schema for organization responses."""
+    id: UUID
+    slug: str
     is_active: bool
-    max_users: Optional[int] = None
-    max_locations: Optional[int] = None
     user_count: int = 0
-    location_count: int = 0
+    created_at: datetime
+    updated_at: datetime
 
-    @property
-    def is_at_user_limit(self) -> bool:
-        """Check if organization has reached its user limit."""
-        if self.max_users is None:
-            return False
-        return self.user_count >= self.max_users
+    class Config:
+        from_attributes = True
 
-    @property
-    def full_address(self) -> str:
-        """Get the full formatted address."""
-        parts = []
-        if self.address_line1:
-            parts.append(self.address_line1)
-        if self.address_line2:
-            parts.append(self.address_line2)
-        if self.city:
-            parts.append(self.city)
-        if self.state:
-            parts.append(self.state)
-        if self.postal_code:
-            parts.append(self.postal_code)
-        if self.country:
-            parts.append(self.country)
-        return ", ".join(parts)
 
-# Organization Settings Schema
-class OrganizationSettingsBase(BaseSchema):
-    """Base schema for organization settings."""
-    security_settings: Optional[Dict[str, Any]] = None
-    branding_settings: Optional[Dict[str, Any]] = None
-    notification_settings: Optional[Dict[str, Any]] = None
-    integration_settings: Optional[Dict[str, Any]] = None
-    feature_flags: Optional[Dict[str, Any]] = None
-    custom_settings: Optional[Dict[str, Any]] = None
+# Organization List Response Schema
+class OrganizationListResponse(BaseModel):
+    """Schema for paginated organization list responses."""
+    organizations: List[OrganizationResponse]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
 
-class OrganizationSettingsUpdate(OrganizationSettingsBase):
-    """Schema for updating organization settings."""
-    pass
-
-class OrganizationSettingsResponse(UUIDSchema, OrganizationSettingsBase, TimestampSchema):
-    """Schema for organization settings response."""
-    organization_id: UUID
-
-# Organization Member Schemas
-class OrganizationMemberBase(BaseSchema):
-    """Base schema for organization member."""
-    user_id: UUID
-    role: str = Field(..., pattern="^(owner|admin|member|viewer)$")
-    is_active: bool = True
-
-class OrganizationMemberCreate(OrganizationMemberBase):
-    """Schema for adding a member to organization."""
-    send_invitation: bool = True
-
-class OrganizationMemberUpdate(BaseSchema):
-    """Schema for updating organization member."""
-    role: Optional[str] = Field(None, pattern="^(owner|admin|member|viewer)$")
-    is_active: Optional[bool] = None
-
-class OrganizationMemberResponse(UUIDSchema, OrganizationMemberBase, TimestampSchema):
-    """Schema for organization member response."""
-    organization_id: UUID
-    user_email: str
-    user_name: str
-    joined_at: Optional[datetime] = None
-    last_activity: Optional[datetime] = None
-
-# Organization Invitation Schemas
-class OrganizationInvitationCreate(BaseSchema):
-    """Schema for creating organization invitation."""
-    email: EmailStr
-    role: str = Field(..., pattern="^(admin|member|viewer)$")
-    message: Optional[str] = Field(None, max_length=500)
-    expires_in_days: int = Field(default=7, ge=1, le=30)
-
-class OrganizationInvitationResponse(UUIDSchema, TimestampSchema):
-    """Schema for organization invitation response."""
-    organization_id: UUID
-    email: EmailStr
-    role: str
-    message: Optional[str] = None
-    invited_by: UUID
-    expires_at: datetime
-    status: str = Field(..., pattern="^(pending|accepted|rejected|expired)$")
-    accepted_at: Optional[datetime] = None
-
-class OrganizationInvitationAccept(BaseSchema):
-    """Schema for accepting organization invitation."""
-    token: str
-    user_data: Optional[Dict[str, Any]] = None
 
 # Organization Statistics Schema
-class OrganizationStats(BaseSchema):
+class OrganizationStats(BaseModel):
     """Schema for organization statistics."""
     total_users: int
     active_users: int
     total_locations: int
     active_locations: int
     total_roles: int
-    last_login_count_24h: int
-    storage_used_mb: Optional[float] = None
-    api_calls_last_30d: Optional[int] = None
+    subscription_tier: str
+    is_at_user_limit: bool
+    is_at_location_limit: bool
 
-class OrganizationStatsResponse(BaseSchema):
-    """Schema for organization statistics response."""
-    organization_id: UUID
-    stats: OrganizationStats
-    collected_at: datetime
 
-# Organization List Response Schema
-class OrganizationListResponse(BaseSchema):
-    """Schema for organization list response."""
-    organizations: List[OrganizationResponse]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
+class OrganizationSearchRequest(BaseModel):
+    """Schema for organization search requests."""
+    query: Optional[str] = Field(None, description="Search query")
+    is_active: Optional[bool] = Field(None, description="Filter by active status")
+    subscription_tier: Optional[str] = Field(None, description="Filter by subscription tier")
+    domain: Optional[str] = Field(None, description="Filter by domain")
+
+
+class OrganizationBulkAction(BaseModel):
+    """Schema for bulk organization actions."""
+    organization_ids: List[UUID] = Field(..., min_items=1, description="List of organization IDs")
+    action: str = Field(..., description="Action to perform")
+
+    @validator('action')
+    def validate_action(cls, v):
+        allowed_actions = ['activate', 'deactivate', 'delete']
+        if v not in allowed_actions:
+            raise ValueError(f'Action must be one of: {", ".join(allowed_actions)}')
+        return v

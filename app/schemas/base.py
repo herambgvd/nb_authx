@@ -1,60 +1,71 @@
 """
-Base schemas for the AuthX service.
-This module provides base Pydantic models for API requests and responses.
+Base schemas for AuthX API.
+Common response models and validation schemas.
 """
 from datetime import datetime
-from typing import Optional, List, Generic, TypeVar, Dict, Any
+from typing import Optional, Any, Dict
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
-
-# Type variable for generic models
-T = TypeVar('T')
+from pydantic import BaseModel, Field
 
 class BaseSchema(BaseModel):
     """Base schema with common configuration."""
-    model_config = ConfigDict(
-        from_attributes=True,
-        populate_by_name=True,
-        arbitrary_types_allowed=True
-    )
+    class Config:
+        from_attributes = True
+        validate_assignment = True
+        use_enum_values = True
+
+class UUIDSchema(BaseSchema):
+    """Base schema with UUID field."""
+    id: UUID
 
 class TimestampSchema(BaseSchema):
-    """Schema mixin with timestamp fields."""
+    """Base schema with timestamp fields."""
     created_at: datetime
     updated_at: datetime
 
-class UUIDSchema(BaseSchema):
-    """Schema mixin with UUID primary key."""
-    id: UUID
-
 class TenantBaseSchema(BaseSchema):
-    """Schema mixin for organization-specific (tenant) models."""
-    organization_id: UUID
+    """Base schema for tenant-aware entities."""
+    organization_id: Optional[UUID] = None
 
-class ResponseBase(BaseSchema, Generic[T]):
-    """Base schema for API responses."""
+class BaseResponse(BaseModel):
+    """Base response schema with common fields."""
     success: bool = True
     message: Optional[str] = None
-    data: Optional[T] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
 
-class PaginatedResponse(ResponseBase, Generic[T]):
-    """Schema for paginated API responses."""
-    data: List[T]
+class ErrorResponse(BaseModel):
+    """Error response schema."""
+    success: bool = False
+    error: str
+    details: Optional[Dict[str, Any]] = None
+    status_code: int
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class MessageResponse(BaseModel):
+    """Simple message response schema."""
+    message: str
+    success: bool = True
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class PaginationMeta(BaseModel):
+    """Pagination metadata schema."""
     total: int
     page: int
-    page_size: int
+    per_page: int
     total_pages: int
+    has_next: bool
+    has_prev: bool
 
-class ErrorResponse(ResponseBase):
-    """Schema for error responses."""
-    success: bool = False
-    error_code: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
+class BaseListResponse(BaseModel):
+    """Base list response with pagination."""
+    meta: PaginationMeta
+    success: bool = True
 
-class TokenResponse(BaseSchema):
-    """Schema for authentication token responses."""
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
+class HealthResponse(BaseModel):
+    """Health check response schema."""
+    status: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    version: str
+    environment: str
+    services: Optional[Dict[str, Any]] = None

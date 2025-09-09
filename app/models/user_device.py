@@ -54,7 +54,7 @@ class UserDevice(UUIDBaseModel):
     last_login_ip: Mapped[str] = mapped_column(String(45), nullable=False)
 
     # Relationships
-    user = relationship("User", back_populates="devices")
+    user = relationship("User", back_populates="user_devices")
 
     def __repr__(self) -> str:
         return f"<UserDevice(id={self.id}, user_id={self.user_id}, device_type='{self.device_type}')>"

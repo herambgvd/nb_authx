@@ -1,314 +1,299 @@
 """
-Admin schemas for AuthX super admin functionality.
+Admin schemas for AuthX API.
+Defines Pydantic models for admin-related data validation and serialization.
 """
-from datetime import datetime
-from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field, validator, EmailStr
+from typing import Optional, List, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, Field
+from datetime import datetime
 
-class SuperAdminDashboard(BaseModel):
-    """Super admin dashboard data."""
-    organization_stats: Dict[str, int]
-    user_stats: Dict[str, int]
-    system_health: Dict[str, Any]
-    current_metrics: Optional[Dict[str, Any]] = None
-    recent_audit_logs: List[Dict[str, Any]]
+from app.schemas.base import BaseSchema, UUIDSchema, TimestampSchema
 
-class OrganizationApprovalRequest(BaseModel):
-    """Organization approval request."""
-    organization_id: UUID
-    approval_notes: Optional[str] = None
 
-class OrganizationRejectionRequest(BaseModel):
-    """Organization rejection request."""
-    organization_id: UUID
-    rejection_reason: str = Field(..., min_length=10, max_length=500)
+class SystemConfigBase(BaseModel):
+    """Base system configuration schema."""
+    key: str = Field(..., min_length=1, max_length=255, description="Configuration key")
+    value: Dict[str, Any] = Field(..., description="Configuration value")
+    description: Optional[str] = Field(None, max_length=1000, description="Configuration description")
+    is_encrypted: bool = Field(False, description="Whether the value is encrypted")
 
-class SystemStats(BaseModel):
-    """System statistics."""
-    total_organizations: int
-    active_organizations: int
+    @validator('key')
+    def validate_key(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Configuration key cannot be empty')
+        return v.strip().upper()
+
+
+class SystemConfigCreate(SystemConfigBase):
+    """Schema for creating a system configuration."""
+    pass
+
+
+class SystemConfigUpdate(BaseModel):
+    """Schema for updating a system configuration."""
+    value: Optional[Dict[str, Any]] = None
+    description: Optional[str] = Field(None, max_length=1000)
+    is_encrypted: Optional[bool] = None
+
+
+class SystemConfigResponse(SystemConfigBase):
+    """Schema for system configuration responses."""
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[UUID] = None
+    updated_by: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LicenseBase(BaseModel):
+    """Base license schema."""
+    license_key: str = Field(..., min_length=1, max_length=255, description="License key")
+    organization_id: UUID = Field(..., description="Organization ID")
+    license_type: str = Field(..., max_length=50, description="License type")
+    max_users: int = Field(100, ge=1, description="Maximum number of users")
+    max_locations: int = Field(10, ge=1, description="Maximum number of locations")
+    valid_from: datetime = Field(..., description="License valid from date")
+    valid_until: datetime = Field(..., description="License valid until date")
+    is_active: bool = Field(True, description="License active status")
+    features: Optional[Dict[str, Any]] = Field(None, description="License features")
+
+    @validator('license_type')
+    def validate_license_type(cls, v):
+        allowed_types = ['trial', 'basic', 'premium', 'enterprise']
+        if v not in allowed_types:
+            raise ValueError(f'License type must be one of: {", ".join(allowed_types)}')
+        return v
+
+    @validator('valid_until')
+    def validate_dates(cls, v, values):
+        if 'valid_from' in values and v <= values['valid_from']:
+            raise ValueError('Valid until date must be after valid from date')
+        return v
+
+
+class LicenseCreate(LicenseBase):
+    """Schema for creating a license."""
+    pass
+
+
+class LicenseUpdate(BaseModel):
+    """Schema for updating a license."""
+    license_type: Optional[str] = Field(None, max_length=50)
+    max_users: Optional[int] = Field(None, ge=1)
+    max_locations: Optional[int] = Field(None, ge=1)
+    valid_from: Optional[datetime] = None
+    valid_until: Optional[datetime] = None
+    is_active: Optional[bool] = None
+    features: Optional[Dict[str, Any]] = None
+
+    @validator('license_type')
+    def validate_license_type(cls, v):
+        if v is not None:
+            allowed_types = ['trial', 'basic', 'premium', 'enterprise']
+            if v not in allowed_types:
+                raise ValueError(f'License type must be one of: {", ".join(allowed_types)}')
+        return v
+
+
+class LicenseResponse(LicenseBase):
+    """Schema for license responses."""
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[UUID] = None
+    updated_by: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AdminBase(BaseModel):
+    """Base admin schema."""
+    user_id: UUID = Field(..., description="User ID")
+    admin_level: str = Field("super_admin", max_length=50, description="Admin level")
+    permissions: Optional[Dict[str, Any]] = Field(None, description="Admin permissions")
+    is_active: bool = Field(True, description="Admin active status")
+
+    @validator('admin_level')
+    def validate_admin_level(cls, v):
+        allowed_levels = ['super_admin', 'admin', 'moderator']
+        if v not in allowed_levels:
+            raise ValueError(f'Admin level must be one of: {", ".join(allowed_levels)}')
+        return v
+
+
+class AdminCreate(AdminBase):
+    """Schema for creating an admin."""
+    pass
+
+
+class AdminUpdate(BaseModel):
+    """Schema for updating an admin."""
+    admin_level: Optional[str] = Field(None, max_length=50)
+    permissions: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+    @validator('admin_level')
+    def validate_admin_level(cls, v):
+        if v is not None:
+            allowed_levels = ['super_admin', 'admin', 'moderator']
+            if v not in allowed_levels:
+                raise ValueError(f'Admin level must be one of: {", ".join(allowed_levels)}')
+        return v
+
+
+class AdminResponse(AdminBase):
+    """Schema for admin responses."""
+    id: UUID
+    created_at: datetime
+    created_by: Optional[UUID] = None
+    last_login: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AdminStats(BaseModel):
+    """Schema for admin statistics."""
     total_users: int
     active_users: int
-    system_uptime: str
-    last_backup: Optional[datetime] = None
+    total_organizations: int
+    active_organizations: int
+    total_locations: int
+    active_locations: int
+    system_health: str
+    recent_activities: List[Dict[str, Any]] = []
+
+
+class SystemHealthResponse(BaseModel):
+    """Schema for system health responses."""
+    status: str
+    timestamp: datetime
+    version: str
+    environment: str
+    database_status: str
+    redis_status: str
+    services: Dict[str, Any]
+    metrics: Dict[str, Any]
+
+
+class SuperAdminDashboard(BaseModel):
+    """Schema for super admin dashboard data."""
+    total_organizations: int
+    active_organizations: int
+    pending_organizations: int
+    total_users: int
+    active_users: int
+    new_users_today: int
+    system_health: str
+    recent_activities: List[Dict[str, Any]]
+    performance_metrics: Dict[str, Any]
+    alerts: List[Dict[str, Any]]
+
+
+class OrganizationApprovalRequest(BaseModel):
+    """Schema for organization approval requests."""
+    organization_id: UUID = Field(..., description="Organization ID to approve")
+    approval_notes: Optional[str] = Field(None, max_length=1000, description="Approval notes")
+    license_type: str = Field("basic", description="License type to assign")
+    max_users: int = Field(100, ge=1, description="Maximum users allowed")
+    max_locations: int = Field(10, ge=1, description="Maximum locations allowed")
+
+
+class OrganizationRejectionRequest(BaseModel):
+    """Schema for organization rejection requests."""
+    organization_id: UUID = Field(..., description="Organization ID to reject")
+    rejection_reason: str = Field(..., min_length=1, max_length=1000, description="Reason for rejection")
+    notify_user: bool = Field(True, description="Whether to notify the organization owner")
+
 
 class UserManagementAction(BaseModel):
-    """User management action request."""
-    user_id: UUID
-    action: str = Field(..., pattern="^(activate|deactivate|verify_email|reset_password|make_super_admin|remove_super_admin)$")
-    details: Optional[Dict[str, Any]] = None
+    """Schema for user management actions."""
+    user_ids: List[UUID] = Field(..., min_items=1, description="List of user IDs")
+    action: str = Field(..., description="Action to perform")
+    reason: Optional[str] = Field(None, max_length=500, description="Reason for action")
+
+    @validator('action')
+    def validate_action(cls, v):
+        allowed_actions = ['activate', 'deactivate', 'suspend', 'verify', 'unverify', 'reset_password', 'force_logout']
+        if v not in allowed_actions:
+            raise ValueError(f'Action must be one of: {", ".join(allowed_actions)}')
+        return v
+
 
 class AuditLogFilter(BaseModel):
-    """Audit log filter parameters."""
-    action_filter: Optional[str] = None
-    user_id: Optional[UUID] = None
-    organization_id: Optional[UUID] = None
+    """Schema for audit log filtering."""
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    page: int = Field(default=1, ge=1)
-    limit: int = Field(default=50, ge=1, le=100)
+    user_id: Optional[UUID] = None
+    organization_id: Optional[UUID] = None
+    action_type: Optional[str] = None
+    resource_type: Optional[str] = None
+    ip_address: Optional[str] = None
+    severity: Optional[str] = None
+
 
 class UserFilter(BaseModel):
-    """User filter parameters."""
-    search: Optional[str] = None
+    """Schema for user filtering."""
     organization_id: Optional[UUID] = None
-    page: int = Field(default=1, ge=1)
-    limit: int = Field(default=50, ge=1, le=100)
+    is_active: Optional[bool] = None
+    is_verified: Optional[bool] = None
+    is_superuser: Optional[bool] = None
+    created_after: Optional[datetime] = None
+    created_before: Optional[datetime] = None
+    last_login_after: Optional[datetime] = None
+    last_login_before: Optional[datetime] = None
+
 
 class SystemAlert(BaseModel):
-    """System alert model."""
-    type: str
+    """Schema for system alerts."""
+    id: UUID
+    alert_type: str
+    severity: str
+    title: str
     message: str
-    severity: str = Field(default="warning", pattern="^(info|warning|error|critical)$")
-    timestamp: datetime
-    resolved: bool = False
+    details: Optional[Dict[str, Any]] = None
+    is_acknowledged: bool = False
+    created_at: datetime
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by: Optional[UUID] = None
+
 
 class PerformanceMetrics(BaseModel):
-    """Performance metrics model."""
+    """Schema for system performance metrics."""
+    timestamp: datetime
     cpu_usage: float
     memory_usage: float
     disk_usage: float
-    response_time: float
+    database_connections: int
+    active_sessions: int
+    requests_per_minute: int
+    response_time_avg: float
     error_rate: float
-    active_connections: int
-    timestamp: datetime
-
-class HealthCheckResult(BaseModel):
-    """Health check result model."""
-    service: str
-    status: str = Field(pattern="^(healthy|degraded|unhealthy)$")
-    response_time: float
-    details: Dict[str, Any]
-    timestamp: datetime
-
-class BulkUserAction(BaseModel):
-    """Bulk user action request."""
-    user_ids: List[UUID] = Field(..., min_items=1, max_items=100)
-    action: str = Field(..., pattern="^(activate|deactivate|verify_email|delete)$")
-    reason: Optional[str] = None
-
-# System Configuration Schemas
-class SystemConfigBase(BaseModel):
-    """Base system configuration schema."""
-    key: str = Field(..., min_length=1, max_length=100)
-    value: str = Field(..., min_length=1)
-    description: Optional[str] = None
-    category: str = Field(default="general")
-    is_sensitive: bool = Field(default=False)
-
-class SystemConfigCreate(SystemConfigBase):
-    """System configuration creation schema."""
-    pass
-
-class SystemConfigUpdate(BaseModel):
-    """System configuration update schema."""
-    value: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[str] = None
-    is_sensitive: Optional[bool] = None
-
-class SystemConfigResponse(SystemConfigBase):
-    """System configuration response schema."""
-    id: UUID
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    created_by: UUID
-    updated_by: Optional[UUID] = None
-
-class SystemConfigListResponse(BaseModel):
-    """System configuration list response."""
-    configs: List[SystemConfigResponse]
-    total: int
-    page: int
-    limit: int
-
-# License Management Schemas
-class LicenseBase(BaseModel):
-    """Base license schema."""
-    license_type: str = Field(..., pattern="^(free|basic|professional|enterprise)$")
-    max_users: int = Field(..., ge=1)
-    max_organizations: int = Field(..., ge=1)
-    features: List[str] = Field(default_factory=list)
-    expires_at: Optional[datetime] = None
-
-class LicenseCreate(LicenseBase):
-    """License creation schema."""
-    organization_id: UUID
-
-class LicenseUpdate(BaseModel):
-    """License update schema."""
-    license_type: Optional[str] = None
-    max_users: Optional[int] = None
-    max_organizations: Optional[int] = None
-    features: Optional[List[str]] = None
-    expires_at: Optional[datetime] = None
-
-class LicenseResponse(LicenseBase):
-    """License response schema."""
-    id: UUID
-    organization_id: UUID
-    is_active: bool
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-class LicenseListResponse(BaseModel):
-    """License list response."""
-    licenses: List[LicenseResponse]
-    total: int
-    page: int
-    limit: int
-
-# Analytics Schemas
-class AnalyticsTimeRange(BaseModel):
-    """Analytics time range."""
-    start_date: datetime
-    end_date: datetime
-    granularity: str = Field(default="day", pattern="^(hour|day|week|month)$")
-
-class AnalyticsMetric(BaseModel):
-    """Single analytics metric."""
-    name: str
-    value: float
-    timestamp: datetime
-    metadata: Optional[Dict[str, Any]] = None
-
-class AnalyticsSeries(BaseModel):
-    """Analytics data series."""
-    metric_name: str
-    data_points: List[AnalyticsMetric]
-    aggregation: str = Field(default="sum", pattern="^(sum|avg|count|min|max)$")
-
-class PlatformAnalyticsResponse(BaseModel):
-    """Platform-wide analytics response."""
-    time_range: AnalyticsTimeRange
-    series: List[AnalyticsSeries]
-    summary: Dict[str, Any]
-
-class OrganizationAnalyticsResponse(BaseModel):
-    """Organization-specific analytics response."""
-    organization_id: UUID
-    time_range: AnalyticsTimeRange
-    series: List[AnalyticsSeries]
-    summary: Dict[str, Any]
-
-# Impersonation Schemas
-class ImpersonationRequest(BaseModel):
-    """User impersonation request."""
-    target_user_id: UUID
-    reason: str = Field(..., min_length=10, max_length=500)
-    duration_minutes: int = Field(default=60, ge=5, le=480)  # 5 minutes to 8 hours
-
-class ImpersonationResponse(BaseModel):
-    """Impersonation response."""
-    session_id: str
-    target_user_id: UUID
-    expires_at: datetime
-    access_token: str
-
-class ImpersonationEndRequest(BaseModel):
-    """End impersonation request."""
-    session_id: str
-
-# Health Check Schemas
-class HealthCheckComponent(BaseModel):
-    """Health check component."""
-    name: str
-    status: str = Field(pattern="^(healthy|degraded|unhealthy)$")
-    response_time_ms: float
-    details: Dict[str, Any]
-    last_checked: datetime
-
-class SystemHealthResponse(BaseModel):
-    """System health response."""
-    overall_status: str = Field(pattern="^(healthy|degraded|unhealthy)$")
-    components: List[HealthCheckComponent]
-    timestamp: datetime
     uptime_seconds: int
 
-# System Alert Schemas
-class SystemAlertBase(BaseModel):
-    """Base system alert schema."""
-    alert_type: str
-    severity: str = Field(pattern="^(info|warning|error|critical)$")
-    title: str = Field(..., min_length=1, max_length=200)
-    message: str = Field(..., min_length=1, max_length=1000)
-    source: str = Field(default="system")
-    metadata: Optional[Dict[str, Any]] = None
 
-class SystemAlertCreate(SystemAlertBase):
-    """System alert creation schema."""
-    pass
+class SystemStats(BaseModel):
+    """Schema for comprehensive system statistics."""
+    total_users: int
+    active_users: int
+    inactive_users: int
+    verified_users: int
+    unverified_users: int
+    total_organizations: int
+    active_organizations: int
+    pending_organizations: int
+    total_locations: int
+    active_locations: int
+    total_roles: int
+    total_sessions: int
+    system_uptime: int
+    database_size: Optional[str] = None
+    cache_hit_ratio: Optional[float] = None
+    avg_response_time: Optional[float] = None
+    error_rate: Optional[float] = None
+    last_updated: datetime
 
-class SystemAlertUpdate(BaseModel):
-    """System alert update schema."""
-    resolved: bool
-    resolved_by: Optional[UUID] = None
-    resolution_notes: Optional[str] = None
-
-class SystemAlertResponse(SystemAlertBase):
-    """System alert response schema."""
-    id: UUID
-    resolved: bool
-    resolved_by: Optional[UUID] = None
-    resolution_notes: Optional[str] = None
-    created_at: datetime
-    resolved_at: Optional[datetime] = None
-
-class SystemAlertListResponse(BaseModel):
-    """System alert list response."""
-    alerts: List[SystemAlertResponse]
-    total: int
-    page: int
-    limit: int
-
-# Additional System Management Schemas
-class SystemStatsResponse(BaseModel):
-    """System statistics response."""
-    stats: SystemStats
-    timestamp: datetime
-    generated_by: UUID
-
-class SystemBackupCreate(BaseModel):
-    """System backup creation request."""
-    backup_type: str = Field(default="full", pattern="^(full|incremental|differential)$")
-    description: Optional[str] = None
-    include_user_data: bool = Field(default=True)
-    include_system_config: bool = Field(default=True)
-
-class SystemBackupResponse(BaseModel):
-    """System backup response."""
-    id: UUID
-    backup_type: str
-    status: str = Field(pattern="^(pending|running|completed|failed)$")
-    file_path: str
-    file_size_bytes: int
-    description: Optional[str] = None
-    created_at: datetime
-    completed_at: Optional[datetime] = None
-    created_by: UUID
-
-class SystemMaintenanceCreate(BaseModel):
-    """System maintenance window creation."""
-    title: str = Field(..., min_length=1, max_length=200)
-    description: str = Field(..., min_length=1, max_length=1000)
-    scheduled_start: datetime
-    estimated_duration_minutes: int = Field(..., ge=1, le=1440)  # 1 minute to 24 hours
-    maintenance_type: str = Field(default="planned", pattern="^(planned|emergency|routine)$")
-    affected_services: List[str] = Field(default_factory=list)
-
-class SystemMaintenanceResponse(BaseModel):
-    """System maintenance response."""
-    id: UUID
-    title: str
-    description: str
-    scheduled_start: datetime
-    estimated_duration_minutes: int
-    actual_duration_minutes: Optional[int] = None
-    maintenance_type: str
-    status: str = Field(pattern="^(scheduled|in_progress|completed|cancelled)$")
-    affected_services: List[str]
-    created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_by: UUID

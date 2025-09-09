@@ -15,7 +15,6 @@ class SecuritySettings(BaseSchema):
     password_require_special: bool = False
     password_expiry_days: int = 90
     login_attempt_limit: int = 5
-    mfa_required: bool = False
     allowed_ip_ranges: List[str] = []
     session_timeout_minutes: int = 60
 

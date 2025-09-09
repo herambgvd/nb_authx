@@ -151,13 +151,8 @@ async def create_organization_settings(db: AsyncSession, organizations):
         settings = OrganizationSettings(
             organization_id=org.id,
             security_settings={
-                "enforce_mfa": True,
                 "password_expiry_days": 90,
                 "session_timeout_minutes": 60,
-                "require_password_change": True,
-                "enable_audit_logging": True,
-                "ip_whitelist": [],
-                "enable_geofencing": False,
                 "max_login_attempts": 5,
                 "lockout_duration_minutes": 30
             },

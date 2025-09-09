@@ -62,6 +62,9 @@ class Location(TenantBaseModel):
         back_populates="locations"
     )
 
+    # User access control relationships
+    user_accesses = relationship("UserLocationAccess", foreign_keys="UserLocationAccess.location_id", back_populates="location", cascade="all, delete-orphan")
+
     def __repr__(self) -> str:
         return f"<Location(id={self.id}, name='{self.name}', type='{self.location_type}')>"
 
@@ -102,3 +105,14 @@ class Location(TenantBaseModel):
         distance = math.sqrt(lat_diff**2 + lng_diff**2) * 111  # Rough km conversion
 
         return distance <= radius_km
+
+    def get_authorized_users(self) -> List["User"]:
+        """Get all users who have access to this location."""
+        return [access.user for access in self.user_accesses if access.is_valid]
+
+    def has_user_access(self, user_id: uuid.UUID) -> bool:
+        """Check if a user has access to this location."""
+        for access in self.user_accesses:
+            if access.user_id == user_id and access.is_valid:
+                return True
+        return False

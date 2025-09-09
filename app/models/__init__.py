@@ -11,7 +11,7 @@ from app.models.role import Role, Permission
 from app.models.location import Location
 from app.models.location_group import LocationGroup, location_group_association
 from app.models.audit import AuditLog, SecurityEvent, ComplianceReport, ForensicSnapshot
-from app.models.admin import SystemConfig, License, UserImpersonation, MaintenanceWindow, PlatformMetric
+from app.models.admin import SystemConfig, License, Admin
 
 # Export all models
 __all__ = [
@@ -21,17 +21,24 @@ __all__ = [
     "TenantBaseModel",
     "Base",
 
-    # Core models
+    # User models
     "User",
     "UserDevice",
+
+    # Organization models
     "Organization",
     "OrganizationSettings",
+
+    # Role and permission models
     "Role",
     "Permission",
+
+    # Location models
     "Location",
     "LocationGroup",
+    "location_group_association",
 
-    # Audit and logging models
+    # Audit and security models
     "AuditLog",
     "SecurityEvent",
     "ComplianceReport",
@@ -40,10 +47,5 @@ __all__ = [
     # Admin models
     "SystemConfig",
     "License",
-    "UserImpersonation",
-    "MaintenanceWindow",
-    "PlatformMetric",
-
-    # Association tables
-    "location_group_association",
+    "Admin",
 ]

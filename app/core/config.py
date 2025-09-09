@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     # Database Settings
     DATABASE_URL: str = Field(env="DATABASE_URL", default="postgresql+asyncpg://postgres:varanasi@localhost:5432/nb_auth")
+    ALEMBIC_DATABASE_URL: str = Field(env="ALEMBIC_DATABASE_URL", default="postgresql://postgres:varanasi@localhost:5432/nb_auth")
     DATABASE_POOL_SIZE: int = 10
     DATABASE_POOL_OVERFLOW: int = 20
     DATABASE_POOL_TIMEOUT: int = 30
@@ -105,10 +106,6 @@ class Settings(BaseSettings):
     MAX_LOGIN_ATTEMPTS: int = Field(default=5, env="MAX_LOGIN_ATTEMPTS")
     LOCKOUT_DURATION_MINUTES: int = Field(default=15, env="LOCKOUT_DURATION_MINUTES")
 
-    # Multi-Factor Authentication
-    MFA_ENABLED: bool = Field(default=True, env="MFA_ENABLED")
-    MFA_ISSUER: str = Field(default="AuthX", env="MFA_ISSUER")
-
     # Audit and Logging
     AUDIT_LOG_ENABLED: bool = Field(default=True, env="AUDIT_LOG_ENABLED")
     AUDIT_LOG_RETENTION_DAYS: int = Field(default=90, env="AUDIT_LOG_RETENTION_DAYS")
@@ -135,7 +132,6 @@ class Settings(BaseSettings):
         "user_registration": True,
         "password_reset": True,
         "email_verification": True,
-        "multi_factor_auth": True,
         "social_login": False,
         "api_access": True,
         "audit_logging": True,

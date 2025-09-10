@@ -10,7 +10,6 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 import logging
 import re
-
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.location import Location
@@ -19,7 +18,8 @@ from app.schemas.organization import (
     OrganizationCreate,
     OrganizationUpdate,
     OrganizationSearchRequest,
-    OrganizationStats
+    OrganizationStats,
+    OrganizationResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,10 +31,27 @@ class OrganizationService:
     async def create_organization(
         self,
         db: AsyncSession,
+# <<<<<<< HEAD
         org_data: OrganizationCreate,
         creator_id: UUID
     ) -> Organization:
         """Create a new organization with validation."""
+# =======
+#         org_data: Dict[str, Any],
+#         created_by: Optional[UUID] = None
+#     ) -> OrganizationResponse:
+#         """Create a new organization with comprehensive validation."""
+#         logger.info(f"Creating organization: {org_data.get('name')}")
+
+#         # Validate subscription tier
+#         subscription_tier = org_data.get('subscription_tier', 'free')
+#         if subscription_tier not in self.supported_subscription_tiers:
+#             logger.warning(f"Invalid subscription tier: {subscription_tier}")
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail=f"Invalid subscription tier. Supported tiers: {', '.join(self.supported_subscription_tiers)}"
+#             )
+# >>>>>>> updation
 
         # Generate slug from name
         slug = self._generate_slug(org_data.name)
@@ -60,6 +77,7 @@ class OrganizationService:
         organization = Organization(
             name=org_data.name,
             slug=slug,
+# <<<<<<< HEAD
             description=org_data.description,
             domain=org_data.domain,
             email=org_data.email,
@@ -76,12 +94,30 @@ class OrganizationService:
             logo_url=org_data.logo_url,
             subscription_tier=org_data.subscription_tier,
             billing_email=org_data.billing_email
+# =======
+#             description=org_data.get('description'),
+#             subscription_tier=subscription_tier,
+#             max_users=org_data.get('max_users'),
+#             max_locations=org_data.get('max_locations'),
+#             email=org_data.get('email'),
+#             phone=org_data.get('phone'),
+#             website=org_data.get('website'),
+#             logo_url=org_data.get('logo_url'),
+#             address_line1=org_data.get('address_line1'),
+#             address_line2=org_data.get('address_line2'),
+#             city=org_data.get('city'),
+#             state=org_data.get('state'),
+#             postal_code=org_data.get('postal_code'),
+#             country=org_data.get('country'),
+#             billing_email=org_data.get('billing_email'),
+# >>>>>>> updation
         )
 
         db.add(organization)
         await db.commit()
         await db.refresh(organization)
 
+# <<<<<<< HEAD
         logger.info(f"Organization created: {organization.id} - {organization.name}")
         return organization
 
@@ -93,6 +129,86 @@ class OrganizationService:
             .where(Organization.id == org_id)
         )
         return result.scalar_one_or_none()
+# =======
+#         # Create default organization settings
+#         await self._create_default_settings(db, organization.id)
+
+#         # Create default roles for the organization
+#         await self._create_default_roles(db, organization.id)
+#         user_count = await db.scalar(
+#             select(func.count(User.id)).where(User.organization_id == organization.id)
+#         )
+
+#         logger.info(f"Organization created successfully: {organization.id}")
+#         return OrganizationResponse(
+#             id=organization.id,
+#             name=organization.name,
+#             slug=organization.slug,
+#             description=organization.description,
+#             email=organization.email,
+#             phone=organization.phone,
+#             website=organization.website,
+#             address_line1=organization.address_line1,
+#             address_line2=organization.address_line2,
+#             city=organization.city,
+#             state=organization.state,
+#             postal_code=organization.postal_code,
+#             country=organization.country,
+#             is_active=organization.is_active,
+#             max_users=organization.max_users,
+#             max_locations=organization.max_locations,
+#             logo_url=organization.logo_url,
+#             subscription_tier=organization.subscription_tier,
+#             billing_email=organization.billing_email,
+#             created_at=organization.created_at,
+#             updated_at=organization.updated_at,
+#             user_count=user_count
+#         )
+
+
+#     async def get_organization_by_id(
+#         self, db: AsyncSession, org_id: UUID
+#     ) -> Optional[OrganizationResponse]:
+#         """Get organization by ID with all relationships loaded safely."""
+#         logger.debug(f"Fetching organization by ID: {org_id}")
+    
+#         result = await db.execute(select(Organization).where(Organization.id == org_id))
+#         organization = result.scalar_one_or_none()
+    
+#         if not organization:
+#             logger.debug(f"Organization not found with ID: {org_id}")
+#             return None
+    
+#         # ✅ Explicit user count
+#         user_count = await db.scalar(
+#         select(func.count(User.id)).where(User.organization_id == organization.id)
+#     )
+    
+#         return OrganizationResponse(
+#             id=organization.id,
+#             name=organization.name,
+#             slug=organization.slug,
+#             description=organization.description,
+#             email=organization.email,
+#             phone=organization.phone,
+#             website=organization.website,
+#             address_line1=organization.address_line1,
+#             address_line2=organization.address_line2,
+#             city=organization.city,
+#             state=organization.state,
+#             postal_code=organization.postal_code,
+#             country=organization.country,
+#             is_active=organization.is_active,
+#             max_users=organization.max_users,
+#             max_locations=organization.max_locations,
+#             logo_url=organization.logo_url,
+#             subscription_tier=organization.subscription_tier,
+#             billing_email=organization.billing_email,
+#             created_at=organization.created_at,
+#             updated_at=organization.updated_at,
+#             user_count=user_count,
+#         )
+# >>>>>>> updation
 
     async def get_organization_by_slug(self, db: AsyncSession, slug: str) -> Optional[Organization]:
         """Get organization by slug."""
@@ -101,7 +217,97 @@ class OrganizationService:
         )
         return result.scalar_one_or_none()
 
+# <<<<<<< HEAD
     async def get_organizations(
+# =======
+#     async def update_organization(
+#         self,
+#         db: AsyncSession,
+#         org_id: UUID,
+#         org_update: Dict[str, Any],
+#         updated_by: Optional[UUID] = None
+#     ) -> Optional[Organization]:
+#         """Update organization with validation."""
+#         logger.info(f"Updating organization: {org_id}")
+
+#         # Get existing organization
+#         organization = await self.get_organization_by_id(db, org_id)
+#         if not organization:
+#             logger.warning(f"Organization not found for update: {org_id}")
+#             return None
+
+#         # Validate subscription tier if being updated
+#         subscription_tier = org_update.get('subscription_tier')
+#         if subscription_tier and subscription_tier not in self.supported_subscription_tiers:
+#             logger.warning(f"Invalid subscription tier: {subscription_tier}")
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail=f"Invalid subscription tier. Supported tiers: {', '.join(self.supported_subscription_tiers)}"
+#             )
+
+#         # Update allowed fields
+#         allowed_fields = {
+#             "name", "description", "subscription_tier", "max_users", "max_locations",
+#             "email", "phone", "website", "logo_url", "address_line1", "address_line2",
+#             "city", "state", "postal_code", "country", "billing_email", "is_active"
+#         }
+
+#         # Update slug if name is being changed
+#         if 'name' in org_update and org_update['name'] != organization.name:
+#             new_slug = self._generate_slug(org_update['name'])
+#             existing_org = await self.get_organization_by_slug(db, new_slug)
+#             if existing_org and existing_org.id != org_id:
+#                 # Make slug unique
+#                 counter = 1
+#                 while existing_org:
+#                     new_slug = f"{self._generate_slug(org_update['name'])}-{counter}"
+#                     existing_org = await self.get_organization_by_slug(db, new_slug)
+#                     counter += 1
+#             organization.slug = new_slug
+
+#         for field, value in org_update.items():
+#             if field in allowed_fields and hasattr(organization, field):
+#                 setattr(organization, field, value)
+#                 logger.debug(f"Updated {field} for organization {org_id}")
+
+#         organization.updated_at = datetime.utcnow()
+#         await db.commit()
+#         await db.refresh(organization)
+
+#         logger.info(f"Organization updated successfully: {org_id}")
+#         return organization
+
+#     async def delete_organization(self, db: AsyncSession, org_id: UUID) -> bool:
+#         """Delete organization with validation."""
+#         logger.info(f"Deleting organization: {org_id}")
+
+#         organization = await self.get_organization_by_id(db, org_id)
+#         if not organization:
+#             logger.warning(f"Organization not found for deletion: {org_id}")
+#             return False
+
+#         # Check if organization has active users
+#         result = await db.execute(
+#             select(func.count(User.id))
+#             .where(and_(User.organization_id == org_id, User.is_active == True))
+#         )
+#         active_user_count = result.scalar()
+
+#         if active_user_count > 0:
+#             logger.warning(f"Cannot delete organization with active users: {active_user_count}")
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Cannot delete organization that has active users"
+#             )
+
+#         await db.execute(delete(Organization).where(Organization.id == org_id))
+#         await db.commit()
+
+#         logger.info(f"Organization deleted successfully: {org_id}")
+#         return True
+
+#     async def list_organizations(
+# >>>>>>> updation
         self,
         db: AsyncSession,
         skip: int = 0,
@@ -256,6 +462,7 @@ class OrganizationService:
         )
         role_count = role_stats.scalar()
 
+# <<<<<<< HEAD
         return OrganizationStats(
             total_users=user_counts.total_users,
             active_users=user_counts.active_users,
@@ -277,6 +484,67 @@ class OrganizationService:
         action: str
     ) -> Dict[str, Any]:
         """Perform bulk actions on organizations."""
+# =======
+#         return {
+#             "total_users": total_users,
+#             "active_users": active_users,
+#             "total_locations": total_locations,
+#             "total_roles": total_roles
+#         }
+
+#     async def _create_default_settings(self, db: AsyncSession, org_id: UUID):
+#         """Create default organization settings."""
+#         logger.debug(f"Creating default settings for organization: {org_id}")
+
+#         settings = OrganizationSettings(
+#             organization_id=org_id,
+#             security_settings={
+#                 "password_min_length": 8,
+#                 "password_require_uppercase": True,
+#                 "password_require_lowercase": True,
+#                 "password_require_number": True,
+#                 "password_require_special": True,
+#                 "password_expiry_days": 90,
+#                 "login_attempt_limit": 5,
+#                 "mfa_required": False,
+#                 "allowed_ip_ranges": [],
+#                 "session_timeout_minutes": 60
+#             },
+#             branding_settings={
+#                 "logo_url": None,
+#                 "favicon_url": None,
+#                 "primary_color": "#000000",
+#                 "secondary_color": "#FFFFFF",
+#                 "login_page_message": None,
+#                 "custom_css": None
+#             },
+#             notification_settings={
+#                 "email_notifications_enabled": True,
+#                 "security_alert_contacts": [],
+#                 "admin_alert_contacts": []
+#             },
+#             integration_settings={
+#                 "sso_enabled": False,
+#                 "sso_provider": None,
+#                 "sso_config": {},
+#                 "webhook_endpoints": [],
+#                 "api_keys_enabled": False
+#             },
+#             feature_flags={
+#                 "multi_factor_auth": False,
+#                 "audit_logging": True,
+#                 "api_access": True
+#             },
+#             custom_settings={}
+#         )
+
+#         db.add(settings)
+#         await db.commit()
+#         await db.refresh(settings)
+    
+#         logger.info(f"Default organization settings created for org {org_id}")
+#         return settings
+# >>>>>>> updation
 
         # Get organizations
         result = await db.execute(

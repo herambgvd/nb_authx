@@ -347,6 +347,7 @@ async def delete_user(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_organization_admin)
 ):
+# <<<<<<< HEAD
     """Delete a user within the organization."""
     logger.info(f"Deleting user {user_id} from organization {organization_id}")
 
@@ -369,11 +370,28 @@ async def delete_user(
         # First verify the user exists and belongs to the organization
         user = await user_service.get_user(db, user_id)
         if not user:
+# =======
+#     """Delete user account permanently."""
+#     logger.info(f"Deleting user: {user_id}")
+
+#     try:
+#         if not current_user.is_superuser:
+#             logger.warning(f"Unauthorized deletion attempt by {current_user.id}")
+#             raise HTTPException(
+#                 status_code=status.HTTP_403_FORBIDDEN,
+#                 detail="Not authorized to delete users"
+#             )
+
+#         user = await user_service.get_user_by_id(db, user_id)
+#         if not user:
+#             logger.warning(f"User not found for deletion: {user_id}")
+# >>>>>>> updation
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
 
+# <<<<<<< HEAD
         if user.organization_id != organization_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -390,6 +408,13 @@ async def delete_user(
             )
 
         logger.info(f"User {user_id} deleted successfully")
+# =======
+#         await db.delete(user)
+#         await db.commit()
+
+#         logger.info(f"User deleted successfully: {user_id}")
+#         return {"message": "User deleted successfully"}
+# >>>>>>> updation
 
     except HTTPException:
         raise

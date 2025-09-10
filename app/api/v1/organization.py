@@ -38,7 +38,7 @@ async def create_organization(
 
     try:
         organization = await organization_service.create_organization(
-            db, org_data, current_user.id
+            db, org_data.dict(), current_user.id
         )
 
         if not organization:
@@ -81,6 +81,7 @@ async def list_organizations(
     logger.info(f"Listing organizations: page={page}, per_page={per_page}")
 
     try:
+# <<<<<<< HEAD
         # Calculate skip from page
         skip = (page - 1) * per_page
 
@@ -96,12 +97,22 @@ async def list_organizations(
 
         organizations, total = await organization_service.get_organizations(
             db, skip=skip, limit=per_page, search=search_request
+# =======
+#         organizations, total = await organization_service.list_organizations(
+#             db,
+#             skip=skip,
+#             limit=limit,
+#             search=search,
+#             subscription_tier=subscription_tier,
+#             is_active=is_active
+# >>>>>>> updation
         )
 
         # Calculate pagination info
         total_pages = (total + per_page - 1) // per_page if total > 0 else 0
 
         logger.info(f"Retrieved {len(organizations)} organizations out of {total} total")
+# <<<<<<< HEAD
 
         return OrganizationListResponse(
             organizations=[OrganizationResponse.model_validate(org) for org in organizations],
@@ -110,6 +121,30 @@ async def list_organizations(
             per_page=per_page,
             total_pages=total_pages
         )
+# =======
+#         return {
+#             "organizations": [
+#                 {
+#                     "id": str(org.id),
+#                     "name": org.name,
+#                     "slug": org.slug,
+#                     "description": org.description,
+#                     "subscription_tier": org.subscription_tier,
+#                     "max_users": org.max_users,
+#                     "max_locations": org.max_locations,
+#                     "email": org.email,
+#                     "phone": org.phone,
+#                     "is_active": org.is_active,
+#                     "created_at": org.created_at.isoformat() if org.created_at else None,
+#                     "updated_at": org.updated_at.isoformat() if org.updated_at else None,
+#                 }
+#                 for org in organizations
+#             ],
+#             "total": total,
+#             "skip": skip,
+#             "limit": limit
+#         }
+# >>>>>>> updation
 
     except Exception as e:
         logger.error(f"Failed to list organizations: {e}")

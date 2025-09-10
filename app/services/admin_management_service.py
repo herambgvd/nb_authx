@@ -322,64 +322,92 @@ class AdminManagementService:
         self,
         db: AsyncSession
     ) -> List[Admin]:
-        """Get all super admins."""
-        query = select(Admin).options(
-            selectinload(Admin.user)
-        ).where(
-            and_(
-                Admin.admin_level == "super_admin",
-                Admin.is_active == True
+        """Get all super admins with proper error handling."""
+        try:
+            query = select(Admin).options(
+                selectinload(Admin.user),
+                selectinload(Admin.organization),
+                selectinload(Admin.creator)
+            ).where(
+                and_(
+                    Admin.admin_level == "super_admin",
+                    Admin.is_active == True
+                )
             )
-        )
 
-        result = await db.execute(query)
-        return result.scalars().all()
+            result = await db.execute(query)
+            admins = result.scalars().all()
+
+            # Convert to list to ensure proper return type
+            return list(admins)
+
+        except Exception as e:
+            # Log the actual error for debugging
+            print(f"Error in get_all_super_admins: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to retrieve super admins: {str(e)}"
+            )
 
     async def update_admin(
         self,
         db: AsyncSession,
         admin_id: UUID,
-        update_data: AdminUpdate
-    ) -> Admin:
-        """Update admin record."""
-        query = select(Admin).where(Admin.id == admin_id)
-        result = await db.execute(query)
-        admin = result.scalar_one_or_none()
+        update_data: AdminUpdate,
+        updated_by: UUID
+    ) -> Optional[Admin]:
+        """Update admin record with proper error handling."""
+        try:
+            query = select(Admin).options(
+                selectinload(Admin.user),
+                selectinload(Admin.organization)
+            ).where(Admin.id == admin_id)
+            result = await db.execute(query)
+            admin = result.scalar_one_or_none()
 
-        if not admin:
+            if not admin:
+                return None
+
+            # Update fields
+            for field, value in update_data.model_dump(exclude_unset=True).items():
+                setattr(admin, field, value)
+
+            admin.updated_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(admin)
+            return admin
+        except Exception as e:
+            await db.rollback()
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Admin not found"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update admin: {str(e)}"
             )
-
-        # Update fields
-        for field, value in update_data.model_dump(exclude_unset=True).items():
-            setattr(admin, field, value)
-
-        await db.commit()
-        await db.refresh(admin)
-        return admin
 
     async def deactivate_admin(
         self,
         db: AsyncSession,
-        admin_id: UUID
-    ) -> Admin:
-        """Deactivate admin record."""
-        query = select(Admin).where(Admin.id == admin_id)
-        result = await db.execute(query)
-        admin = result.scalar_one_or_none()
+        admin_id: UUID,
+        deactivated_by: UUID
+    ) -> bool:
+        """Deactivate admin record with proper error handling."""
+        try:
+            query = select(Admin).where(Admin.id == admin_id)
+            result = await db.execute(query)
+            admin = result.scalar_one_or_none()
 
-        if not admin:
+            if not admin:
+                return False
+
+            admin.is_active = False
+            admin.updated_at = datetime.utcnow()
+            await db.commit()
+            return True
+        except Exception as e:
+            await db.rollback()
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Admin not found"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to deactivate admin: {str(e)}"
             )
-
-        admin.is_active = False
-        await db.commit()
-        await db.refresh(admin)
-        return admin
 
     async def verify_admin_permissions(
         self,
@@ -475,6 +503,66 @@ class AdminManagementService:
                 "update": True
             }
         }
+
+    async def onboard_organization(
+        self,
+        db: AsyncSession,
+        request: OnboardOrganizationRequest,
+        created_by: UUID
+    ) -> Dict[str, Any]:
+        """Onboard organization wrapper method that returns the expected format."""
+        try:
+            org, admin_user, admin, license = await self.onboard_organization_with_admin(
+                db, request, created_by
+            )
+
+            return {
+                "organization": {
+                    "id": str(org.id),
+                    "name": org.name,
+                    "slug": org.slug,
+                    "description": org.description,
+                    "domain": org.domain,
+                    "email": org.email,
+                    "phone": org.phone,
+                    "is_active": org.is_active,
+                    "max_users": org.max_users,
+                    "max_locations": org.max_locations
+                },
+                "admin": {
+                    "id": str(admin.id),
+                    "user_id": str(admin.user_id),
+                    "admin_level": admin.admin_level,
+                    "permissions": admin.permissions,
+                    "is_active": admin.is_active,
+                    "organization_id": str(admin.organization_id),
+                    "user": {
+                        "id": str(admin_user.id),
+                        "email": admin_user.email,
+                        "username": admin_user.username,
+                        "first_name": admin_user.first_name,
+                        "last_name": admin_user.last_name,
+                        "phone_number": admin_user.phone_number,
+                        "is_active": admin_user.is_active,
+                        "is_verified": admin_user.is_verified
+                    }
+                },
+                "license": {
+                    "id": str(license.id),
+                    "license_key": license.license_key,
+                    "license_type": license.license_type,
+                    "max_users": license.max_users,
+                    "max_locations": license.max_locations,
+                    "valid_from": license.valid_from.isoformat(),
+                    "valid_until": license.valid_until.isoformat(),
+                    "is_active": license.is_active
+                }
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to onboard organization: {str(e)}"
+            )
 
 
 # Create service instance

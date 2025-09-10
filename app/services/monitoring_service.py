@@ -151,12 +151,12 @@ class SystemMonitoringService:
                 await self._check_redis_health()
 
             # External services health checks
-            if settings.GOOGLE_MAPS_API_KEY:
-                await self._check_google_maps_health()
+            # if settings.GOOGLE_MAPS_API_KEY:
+            #     await self._check_google_maps_health()
 
             # SMTP health check
-            if settings.SMTP_SERVER:
-                await self._check_smtp_health()
+            # if settings.SMTP_SERVER:
+            #     await self._check_smtp_health()
 
         except Exception as e:
             logger.error(f"Error performing health checks: {str(e)}")

@@ -206,7 +206,7 @@ async def get_super_admins(
     try:
         admins = await admin_management_service.get_all_super_admins(db)
         return AdminListResponse(
-            admins=[AdminResponse.model_validate(admin) for admin in admins],
+            items=[AdminResponse.model_validate(admin) for admin in admins],
             total=len(admins)
         )
     except Exception as e:

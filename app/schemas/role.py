@@ -54,9 +54,8 @@ class RoleListResponse(BaseSchema):
     roles: List[RoleResponse]
     total: int
     page: int
-    page_size: int
-    has_next: bool
-    has_prev: bool
+    per_page: int
+    total_pages: int
 
 # Permission Schemas
 class PermissionBase(BaseSchema):
@@ -99,92 +98,42 @@ class PermissionAssignment(BaseSchema):
 
 class PermissionCheckRequest(BaseSchema):
     """Schema for checking user permissions."""
-    user_id: Optional[UUID] = None
-    resource: str = Field(..., min_length=1)
-    action: str = Field(..., min_length=1)
-    context: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    resource: str
+    action: str
+    resource_id: Optional[UUID] = None
 
 class PermissionCheckResponse(BaseSchema):
     """Schema for permission check response."""
-    user_id: UUID
-    resource: str
-    action: str
     has_permission: bool
-    granted_through: List[str] = Field(default_factory=list)
+    reason: Optional[str] = None
 
-# Role Hierarchy Schemas
-class RoleHierarchyItem(BaseSchema):
-    """Schema for role hierarchy items."""
+# User-Role Assignment Schemas
+class UserRoleAssignment(BaseSchema):
+    """Schema for assigning a role to a user."""
     role_id: UUID
-    role_name: str
-    parent_id: Optional[UUID] = None
-    children: List['RoleHierarchyItem'] = Field(default_factory=list)
+    expires_at: Optional[datetime] = None
 
-# Workflow Schemas
-class ApprovalWorkflowRequest(BaseSchema):
-    """Schema for approval workflow requests."""
-    action: str
-    resource_type: str
-    resource_id: UUID
-    justification: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
-
-class ApprovalWorkflowResponse(UUIDSchema, TimestampSchema):
-    """Schema for approval workflow response."""
-    action: str
-    resource_type: str
-    resource_id: UUID
-    status: str
-    requested_by: UUID
-    approved_by: Optional[UUID] = None
-    justification: Optional[str] = None
-    approval_notes: Optional[str] = None
-    metadata: Dict[str, Any]
-
-class ApprovalDecisionRequest(BaseSchema):
-    """Schema for approval decision requests."""
-    decision: str = Field(..., pattern="^(approve|reject)$")
-    notes: Optional[str] = Field(None, max_length=1000)
-
-# Role Assignment Schemas
-class RoleAssignment(BaseSchema):
-    """Schema for assigning roles to users."""
+class UserRoleResponse(BaseSchema):
+    """Schema for user role assignment response."""
     user_id: UUID
     role_id: UUID
-    organization_id: Optional[UUID] = None
-
-class RoleAssignmentResponse(UUIDSchema, TimestampSchema):
-    """Schema for role assignment response."""
-    user_id: UUID
-    role_id: UUID
-    organization_id: UUID
     role_name: str
-    user_name: str
+    assigned_at: datetime
+    assigned_by: UUID
+    expires_at: Optional[datetime] = None
 
-class RolePermissionUpdate(BaseSchema):
-    """Schema for updating role permissions."""
-    add_permissions: Optional[List[UUID]] = Field(default_factory=list)
-    remove_permissions: Optional[List[UUID]] = Field(default_factory=list)
-    replace_permissions: Optional[List[UUID]] = None
+class RoleBulkAction(BaseSchema):
+    """Schema for bulk role actions."""
+    role_ids: List[UUID] = Field(..., min_items=1)
+    action: str = Field(..., description="Action to perform")
 
-# Permission Template Schemas
-class PermissionTemplate(BaseSchema):
-    """Schema for permission templates."""
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    permissions: Dict[str, Any] = Field(default_factory=dict)
-    is_system: bool = False
-    is_active: bool = True
+    @validator('action')
+    def validate_action(cls, v):
+        allowed_actions = ['activate', 'deactivate', 'delete', 'assign_permissions']
+        if v not in allowed_actions:
+            raise ValueError(f'Action must be one of: {", ".join(allowed_actions)}')
+        return v
 
-class PermissionTemplateResponse(UUIDSchema, TimestampSchema):
-    """Schema for permission template response."""
-    name: str
-    description: Optional[str]
-    permissions: Dict[str, Any]
-    is_system: bool
-    is_active: bool
-
-# Role Statistics Schemas
 class RoleStats(BaseSchema):
     """Schema for role statistics."""
     total_roles: int = 0
@@ -199,5 +148,14 @@ class RoleStatsResponse(BaseSchema):
     top_roles: List[Dict[str, Any]] = Field(default_factory=list)
     recent_changes: List[Dict[str, Any]] = Field(default_factory=list)
 
-# Update forward references
+class RoleHierarchyItem(BaseSchema):
+    """Schema for role hierarchy representation."""
+    role_id: UUID
+    role_name: str
+    level: int = 0
+    parent_role_id: Optional[UUID] = None
+    children: List['RoleHierarchyItem'] = Field(default_factory=list)
+    permissions: List[str] = Field(default_factory=list)
+
+# Update forward references for the recursive model
 RoleHierarchyItem.model_rebuild()

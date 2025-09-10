@@ -21,11 +21,19 @@ router = APIRouter()
 @router.get("/health")
 async def health_check():
     """Basic health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "authx",
-        "version": "1.0.0"
-    }
+    try:
+        return {
+            "status": "healthy",
+            "service": "authx",
+            "version": "1.0.0",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Health check failed"
+        )
 
 @router.get("/health/detailed")
 async def detailed_health_check(
@@ -34,54 +42,78 @@ async def detailed_health_check(
     """Detailed health check with system metrics."""
     try:
         # Check database connection
-        from sqlalchemy import text
-        await db.execute(text("SELECT 1"))
-        db_status = "healthy"
-        db_message = "Database connection successful"
-    except Exception as e:
-        db_status = "unhealthy"
-        db_message = f"Database error: {str(e)}"
+        try:
+            from sqlalchemy import text
+            await db.execute(text("SELECT 1"))
+            db_status = "healthy"
+            db_message = "Database connection successful"
+        except Exception as e:
+            db_status = "unhealthy"
+            db_message = f"Database error: {str(e)}"
 
-    # Check Redis
-    redis_health = await check_redis_health()
+        # Check Redis
+        try:
+            redis_health = await check_redis_health()
+        except Exception as e:
+            redis_health = {"status": "unhealthy", "error": str(e)}
 
-    # Get system health
-    system_health = await check_system_health()
+        # Get system health
+        try:
+            system_health = await check_system_health()
+        except Exception as e:
+            system_health = {"status": "unhealthy", "error": str(e)}
 
-    overall_status = "healthy"
-    if db_status != "healthy" or redis_health["status"] != "healthy":
-        overall_status = "degraded"
+        overall_status = "healthy"
+        if db_status != "healthy" or redis_health["status"] != "healthy":
+            overall_status = "degraded"
 
-    return {
-        "status": overall_status,
-        "components": {
-            "database": {
-                "status": db_status,
-                "message": db_message
+        return {
+            "status": overall_status,
+            "components": {
+                "database": {
+                    "status": db_status,
+                    "message": db_message
+                },
+                "redis": redis_health,
+                "system": system_health
             },
-            "redis": redis_health,
-            "system": system_health
-        },
-        "service": "authx",
-        "version": "1.0.0"
-    }
+            "service": "authx",
+            "version": "1.0.0",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Detailed health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Health check failed"
+        )
 
 @router.get("/info")
 async def service_info():
     """Get service information."""
-    from app.core.config import settings
+    try:
+        from app.core.config import settings
 
-    return {
-        "service": "AuthX",
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT,
-        "features": {
-            "redis_enabled": settings.REDIS_ENABLED,
-            "audit_logging": settings.AUDIT_LOG_ENABLED,
-            "rate_limiting": settings.RATE_LIMIT_ENABLED
-        },
-        "api_docs": "/docs" if settings.DOCS_ENABLED else None
-    }
+        return {
+            "service": "AuthX",
+            "version": "1.0.0",
+            "environment": settings.ENVIRONMENT,
+            "features": {
+                "redis_enabled": settings.REDIS_ENABLED,
+                "audit_logging": settings.AUDIT_LOG_ENABLED,
+                "rate_limiting": settings.RATE_LIMIT_ENABLED,
+                "monitoring_enabled": settings.MONITORING_ENABLED,
+                "prometheus_enabled": settings.PROMETHEUS_ENABLED
+            },
+            "api_docs": "/docs" if settings.DOCS_ENABLED else None,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Service info retrieval failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve service information"
+        )
 
 @router.get("/database/info")
 async def database_info(

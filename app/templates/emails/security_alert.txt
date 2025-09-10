@@ -1,0 +1,21 @@
+Hello {{ user_name }},
+
+🚨 SECURITY ALERT 🚨
+
+{{ alert_type|upper }} ALERT: {{ alert_message }}
+
+We detected unusual activity on your {{ company_name }} account and wanted to notify you immediately.
+
+What should you do?
+- If this was you, no action is needed
+- If this wasn't you, please change your password immediately
+- Review your recent account activity
+- Enable two-factor authentication for better security
+
+If you have any concerns, please contact our security team immediately.
+
+Best regards,
+The {{ company_name }} Security Team
+
+© {{ company_name }}. All rights reserved.
+Security concerns? Contact us at {{ support_email }}

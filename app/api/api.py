@@ -12,11 +12,18 @@ from app.api.v1 import (
     location,
     admin,
     audit,
-    operations
+    operations,
+    health
 )
 
 # Create main API router
 api_router = APIRouter()
+
+# Include health check endpoints (no prefix for standard health endpoints)
+api_router.include_router(
+    health.router,
+    tags=["Health & Monitoring"]
+)
 
 
 # Include API version 1 routers with proper prefixes and tags

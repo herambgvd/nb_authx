@@ -1,0 +1,1592 @@
+{
+	"info": {
+		"_postman_id": "authx-api-collection",
+		"name": "AuthX - Authentication & Authorization Service",
+		"description": "Complete API collection for AuthX microservice with all endpoints organized by functionality. Includes authentication, user management, organization management, roles & permissions, locations, admin operations, audit logging, and health monitoring.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "authx-team"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "api_prefix",
+			"value": "/api/v1",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "organization_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "role_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "location_id",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "🏥 Health & Monitoring",
+			"description": "Health check endpoints for system monitoring and Kubernetes probes",
+			"item": [
+				{
+					"name": "Basic Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Detailed Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health/detailed",
+							"host": ["{{base_url}}"],
+							"path": ["health", "detailed"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Readiness Probe",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health/readiness",
+							"host": ["{{base_url}}"],
+							"path": ["health", "readiness"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Liveness Probe",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health/liveness",
+							"host": ["{{base_url}}"],
+							"path": ["health", "liveness"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Email Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/metrics/email",
+							"host": ["{{base_url}}"],
+							"path": ["metrics", "email"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔐 Authentication",
+			"description": "Authentication endpoints for login, registration, password management, and session control",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', jsonData.access_token);",
+									"    pm.collectionVariables.set('refresh_token', jsonData.refresh_token);",
+									"    pm.collectionVariables.set('user_id', jsonData.user.id);",
+									"    if (jsonData.user.organization_id) {",
+									"        pm.collectionVariables.set('organization_id', jsonData.user.organization_id);",
+									"    }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "username",
+									"value": "admin@authx.com",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "SuperSecurePassword123!",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "login"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"newuser@example.com\",\n    \"username\": \"newuser\",\n    \"password\": \"SecurePassword123!\",\n    \"first_name\": \"New\",\n    \"last_name\": \"User\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/register",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "register"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', jsonData.access_token);",
+									"    if (jsonData.refresh_token) {",
+									"        pm.collectionVariables.set('refresh_token', jsonData.refresh_token);",
+									"    }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "refresh"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"revoke_all_sessions\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/logout",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "logout"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "me"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Request Password Reset",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"user@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/password/reset",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "password", "reset"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Confirm Password Reset",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"reset-token-here\",\n    \"new_password\": \"NewSecurePassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/password/reset/confirm",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "password", "reset", "confirm"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"current_password\": \"OldPassword123!\",\n    \"new_password\": \"NewPassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/me/change-password",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "me", "change-password"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Request Email Verification",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"user@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/email/verify",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "email", "verify"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Confirm Email Verification",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"verification-token-here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/email/verify/confirm",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "email", "verify", "confirm"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Sessions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/sessions",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "sessions"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Revoke Session",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"session-id-here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/auth/sessions/revoke",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "auth", "sessions", "revoke"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "👥 User Management",
+			"description": "User management endpoints for CRUD operations and profile management",
+			"item": [
+				{
+					"name": "Get Current User Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "me"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Current User Profile",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"first_name\": \"Updated\",\n    \"last_name\": \"Name\",\n    \"phone_number\": \"+1234567890\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "me"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Current User Password",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"current_password\": \"CurrentPassword123!\",\n    \"new_password\": \"NewPassword123!\",\n    \"confirm_password\": \"NewPassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/me/password",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "me", "password"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create User in Organization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"orguser@example.com\",\n    \"username\": \"orguser\",\n    \"password\": \"SecurePassword123!\",\n    \"first_name\": \"Organization\",\n    \"last_name\": \"User\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{organization_id}}/users",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "{{organization_id}}", "users"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Users in Organization",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{organization_id}}/users?page=1&per_page=50&search=",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "{{organization_id}}", "users"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "50"
+								},
+								{
+									"key": "search",
+									"value": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{organization_id}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "{{organization_id}}", "users", "{{user_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"first_name\": \"Updated\",\n    \"last_name\": \"User\",\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{organization_id}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "{{organization_id}}", "users", "{{user_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{organization_id}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "{{organization_id}}", "users", "{{user_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bulk User Actions",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_ids\": [\"user-id-1\", \"user-id-2\"],\n    \"action\": \"activate\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/users/{{organization_id}}/users/bulk-action",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "users", "{{organization_id}}", "users", "bulk-action"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🏢 Organizations",
+			"description": "Organization management endpoints for multi-tenant operations",
+			"item": [
+				{
+					"name": "Create Organization",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('organization_id', jsonData.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Acme Corporation\",\n    \"slug\": \"acme-corp\",\n    \"description\": \"A sample organization\",\n    \"domain\": \"acme.com\",\n    \"subscription_tier\": \"professional\",\n    \"settings\": {\n        \"allow_user_registration\": true,\n        \"require_email_verification\": true\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Organizations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/?page=1&per_page=50&search=&is_active=true",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", ""],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "50"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "is_active",
+									"value": "true"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", "{{organization_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization by Slug",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/slug/acme-corp",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", "slug", "acme-corp"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Organization",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Updated Organization Name\",\n    \"description\": \"Updated description\",\n    \"settings\": {\n        \"allow_user_registration\": false\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", "{{organization_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Organization",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", "{{organization_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/{{organization_id}}/stats",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", "{{organization_id}}", "stats"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bulk Organization Actions",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"organization_ids\": [\"org-id-1\", \"org-id-2\"],\n    \"action\": \"activate\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/organizations/bulk-action",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "organizations", "bulk-action"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔑 Roles & Permissions",
+			"description": "Role-based access control endpoints for permission management",
+			"item": [
+				{
+					"name": "Create Role",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('role_id', jsonData.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Manager\",\n    \"description\": \"Organization manager with elevated permissions\",\n    \"slug\": \"manager\",\n    \"priority\": 5,\n    \"permissions\": {\n        \"users\": [\"read\", \"create\", \"update\"],\n        \"reports\": [\"read\"]\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/roles",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "roles"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Roles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/roles?page=1&per_page=50&is_system=false",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "roles"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "50"
+								},
+								{
+									"key": "is_system",
+									"value": "false"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Senior Manager\",\n    \"description\": \"Updated role description\",\n    \"permissions\": {\n        \"users\": [\"read\", \"create\", \"update\", \"delete\"],\n        \"reports\": [\"read\", \"create\"]\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Available Permissions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "permissions"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Role to User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"role_id\": \"{{role_id}}\",\n    \"expires_at\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/users/{{user_id}}/roles",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "users", "{{user_id}}", "roles"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Remove Role from User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/roles/{{organization_id}}/users/{{user_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "roles", "{{organization_id}}", "users", "{{user_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📍 Locations",
+			"description": "Location management endpoints with GPS integration and geofencing",
+			"item": [
+				{
+					"name": "Create Location",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('location_id', jsonData.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Main Office\",\n    \"description\": \"Primary office location\",\n    \"location_type\": \"office\",\n    \"code\": \"HQ001\",\n    \"address_line1\": \"123 Business St\",\n    \"city\": \"San Francisco\",\n    \"state\": \"CA\",\n    \"postal_code\": \"94102\",\n    \"country\": \"USA\",\n    \"latitude\": 37.7749,\n    \"longitude\": -122.4194,\n    \"phone\": \"+1-555-0123\",\n    \"email\": \"office@company.com\",\n    \"is_active\": true,\n    \"is_primary\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/locations",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "locations"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Locations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/locations?page=1&page_size=50&location_type=office&is_active=true",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "locations"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "page_size",
+									"value": "50"
+								},
+								{
+									"key": "location_type",
+									"value": "office"
+								},
+								{
+									"key": "is_active",
+									"value": "true"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "locations", "{{location_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Updated Office Name\",\n    \"description\": \"Updated description\",\n    \"phone\": \"+1-555-0199\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "locations", "{{location_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Location",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "locations", "{{location_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Locations (Google Maps)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"offices near San Francisco\",\n    \"latitude\": 37.7749,\n    \"longitude\": -122.4194,\n    \"radius\": 10000\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/search",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "search"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Validate Location Coordinates",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"latitude\": 37.7749,\n    \"longitude\": -122.4194\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/validate",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "validate"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Geofence",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"location_id\": \"{{location_id}}\",\n    \"latitude\": 37.7749,\n    \"longitude\": -122.4194,\n    \"radius_meters\": 100\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/geofence/check",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "geofence", "check"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location Hierarchy",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/hierarchy",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "hierarchy"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Location Group",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"West Coast Offices\",\n    \"description\": \"All offices on the west coast\",\n    \"location_ids\": [\"{{location_id}}\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/groups",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "groups"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Location Groups",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/groups?page=1&page_size=50",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "groups"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "page_size",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Assign User to Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_id\": \"{{user_id}}\",\n    \"location_id\": \"{{location_id}}\",\n    \"is_primary\": true,\n    \"access_level\": \"admin\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/assignments",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "assignments"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/locations/{{organization_id}}/locations/{{location_id}}/stats",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "locations", "{{organization_id}}", "locations", "{{location_id}}", "stats"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "⚡ Admin Management",
+			"description": "Super admin and organization admin management endpoints",
+			"item": [
+				{
+					"name": "Bootstrap Super Admin",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"superadmin@authx.com\",\n    \"username\": \"superadmin\",\n    \"password\": \"SuperAdminPassword123!\",\n    \"first_name\": \"Super\",\n    \"last_name\": \"Admin\",\n    \"confirm_password\": \"SuperAdminPassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/bootstrap-super-admin",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "bootstrap-super-admin"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Super Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"admin2@authx.com\",\n    \"username\": \"admin2\",\n    \"password\": \"AdminPassword123!\",\n    \"first_name\": \"Second\",\n    \"last_name\": \"Admin\",\n    \"confirm_password\": \"AdminPassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/super-admin",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "super-admin"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Onboard Organization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"organization\": {\n        \"name\": \"New Company\",\n        \"slug\": \"new-company\",\n        \"description\": \"A new company being onboarded\",\n        \"domain\": \"newcompany.com\",\n        \"subscription_tier\": \"professional\"\n    },\n    \"admin\": {\n        \"email\": \"admin@newcompany.com\",\n        \"username\": \"companyadmin\",\n        \"password\": \"CompanyAdmin123!\",\n        \"first_name\": \"Company\",\n        \"last_name\": \"Admin\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/onboard-organization",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "onboard-organization"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Organization Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"orgadmin@company.com\",\n    \"username\": \"orgadmin\",\n    \"password\": \"OrgAdmin123!\",\n    \"first_name\": \"Organization\",\n    \"last_name\": \"Administrator\",\n    \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/organization-admin",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "organization-admin"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization Admins",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/organization/{{organization_id}}/admins",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "organization", "{{organization_id}}", "admins"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Super Admins",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/super-admins",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "super-admins"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Admin",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"permissions\": {\n        \"manage_users\": true,\n        \"manage_organizations\": false\n    },\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/admin/admin-id-here",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "admin", "admin-id-here"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Deactivate Admin",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/admin/admin-id-here",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "admin", "admin-id-here"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current Admin Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/admin/me",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "admin", "me"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📋 Audit & Logging",
+			"description": "Audit trail and security logging endpoints",
+			"item": [
+				{
+					"name": "Get Audit Logs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/audit/logs?page=1&per_page=50&action=&user_id=&organization_id={{organization_id}}&start_date=&end_date=",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "audit", "logs"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "50"
+								},
+								{
+									"key": "action",
+									"value": ""
+								},
+								{
+									"key": "user_id",
+									"value": ""
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}"
+								},
+								{
+									"key": "start_date",
+									"value": ""
+								},
+								{
+									"key": "end_date",
+									"value": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Security Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/audit/security-events?page=1&per_page=50&event_type=&severity=&organization_id={{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "audit", "security-events"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "50"
+								},
+								{
+									"key": "event_type",
+									"value": ""
+								},
+								{
+									"key": "severity",
+									"value": ""
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "⚙️ Operations",
+			"description": "System operations, maintenance, and administrative endpoints",
+			"item": [
+				{
+					"name": "Operations Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/operations/health",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "operations", "health"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Detailed Operations Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/operations/health/detailed",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "operations", "health", "detailed"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Service Information",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/operations/info",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "operations", "info"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Database Information",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/operations/database/info",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "operations", "database", "info"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Clear Cache",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/operations/cache/clear",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "operations", "cache", "clear"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get System Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}{{api_prefix}}/operations/metrics",
+							"host": ["{{base_url}}"],
+							"path": ["{{api_prefix}}", "operations", "metrics"]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-refresh token if needed",
+					"const accessToken = pm.collectionVariables.get('access_token');",
+					"if (!accessToken && pm.request.url.getPath() !== '/api/v1/auth/login' && pm.request.url.getPath() !== '/health') {",
+					"    console.warn('No access token found. Please login first.');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global test script for all requests",
+					"if (pm.response.code >= 400) {",
+					"    console.error('Request failed with status:', pm.response.code);",
+					"    console.error('Response:', pm.response.text());",
+					"}"
+				]
+			}
+		}
+	]
+}
+

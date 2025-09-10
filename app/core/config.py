@@ -2,7 +2,7 @@
 Configuration settings for AuthX application.
 Manages environment variables, database settings, security configuration, and feature flags.
 """
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import Field
 from pydantic_settings import BaseSettings
 from functools import lru_cache
@@ -63,6 +63,23 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = Field(default="noreply@authx.com", env="EMAIL_FROM")
     EMAIL_FROM_NAME: str = Field(default="AuthX", env="EMAIL_FROM_NAME")
     EMAIL_TEMPLATES_DIR: str = Field(default="app/templates/emails", env="EMAIL_TEMPLATES_DIR")
+
+    # Enhanced Email Service Provider Settings
+    MAILGUN_API_KEY: Optional[str] = Field(default=None, env="MAILGUN_API_KEY")
+    MAILGUN_DOMAIN: Optional[str] = Field(default=None, env="MAILGUN_DOMAIN")
+    MAILGUN_BASE_URL: str = Field(default="https://api.mailgun.net/v3", env="MAILGUN_BASE_URL")
+
+    SENDGRID_API_KEY: Optional[str] = Field(default=None, env="SENDGRID_API_KEY")
+
+    # Email Service Selection and Fallback
+    EMAIL_PROVIDER_PRIORITY: List[str] = Field(default=["smtp", "mailgun", "sendgrid"], env="EMAIL_PROVIDER_PRIORITY")
+    EMAIL_FALLBACK_ENABLED: bool = Field(default=True, env="EMAIL_FALLBACK_ENABLED")
+    EMAIL_RETRY_ATTEMPTS: int = Field(default=3, env="EMAIL_RETRY_ATTEMPTS")
+
+    # Production Email Cost Optimization
+    EMAIL_RATE_LIMIT_PER_HOUR: int = Field(default=1000, env="EMAIL_RATE_LIMIT_PER_HOUR")
+    EMAIL_BATCH_SIZE: int = Field(default=100, env="EMAIL_BATCH_SIZE")
+    EMAIL_QUEUE_ENABLED: bool = Field(default=True, env="EMAIL_QUEUE_ENABLED")
 
     # Google API Settings
     GOOGLE_MAPS_API_KEY: str = Field(env="GOOGLE_MAPS_API_KEY", default="")
@@ -211,6 +228,48 @@ class Settings(BaseSettings):
     def is_testing(self) -> bool:
         """Check if running in testing mode."""
         return self.ENVIRONMENT == "testing"
+
+    def validate_configuration(self) -> Dict[str, Any]:
+        """Validate critical configuration settings."""
+        issues = []
+        warnings = []
+
+        # Check for default/insecure values
+        if self.SECRET_KEY == "your-super-secret-key-change-in-production":
+            issues.append("SECRET_KEY is using default value - CRITICAL SECURITY RISK")
+
+        if len(self.SECRET_KEY) < 32:
+            issues.append("SECRET_KEY should be at least 32 characters long")
+
+        if self.SUPER_ADMIN_PASSWORD == "SuperSecurePassword123!":
+            issues.append("SUPER_ADMIN_PASSWORD is using default value - SECURITY RISK")
+
+        # Database configuration checks
+        if "localhost" in self.DATABASE_URL and self.ENVIRONMENT == "production":
+            warnings.append("Using localhost database in production environment")
+
+        # Email configuration validation
+        if not self.SMTP_USERNAME and not self.MAILGUN_API_KEY and not self.SENDGRID_API_KEY:
+            issues.append("No email service configured - email functionality will fail")
+
+        # Redis configuration
+        if "localhost" in self.REDIS_URL and self.ENVIRONMENT == "production":
+            warnings.append("Using localhost Redis in production environment")
+
+        return {
+            "status": "valid" if not issues else "invalid",
+            "critical_issues": issues,
+            "warnings": warnings
+        }
+
+    @property
+    def email_service_configured(self) -> bool:
+        """Check if at least one email service is configured."""
+        return bool(
+            (self.SMTP_USERNAME and self.SMTP_PASSWORD) or
+            (self.MAILGUN_API_KEY and self.MAILGUN_DOMAIN) or
+            self.SENDGRID_API_KEY
+        )
 
 @lru_cache()
 def get_settings() -> Settings:

@@ -87,10 +87,21 @@ async def create_super_admin(
     Create a new super admin.
     Only accessible by existing super admins.
     """
-    user, admin = await admin_management_service.create_super_admin(
-        db, request, current_user.id
-    )
-    return AdminResponse.model_validate(admin)
+    try:
+        user, admin = await admin_management_service.create_super_admin(
+            db, request, current_user.id
+        )
+        return AdminResponse.model_validate(admin)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create super admin"
+        )
 
 
 @router.post("/onboard-organization", response_model=dict)
@@ -100,30 +111,28 @@ async def onboard_organization(
     current_user: User = Depends(get_current_super_admin)
 ):
     """
-    Onboard a new organization with its admin.
+    Onboard a new organization with its first admin.
     Only accessible by super admins.
     """
-    org, admin_user, admin, license = await admin_management_service.onboard_organization_with_admin(
-        db, request, current_user.id
-    )
-
-    return {
-        "organization": {
-            "id": org.id,
-            "name": org.name,
-            "slug": org.slug
-        },
-        "admin": {
-            "id": admin.id,
-            "user_id": admin_user.id,
-            "email": admin_user.email,
-            "full_name": admin_user.full_name
-        },
-        "license": {
-            "license_key": license.license_key,
-            "valid_until": license.valid_until
+    try:
+        result = await admin_management_service.onboard_organization(
+            db, request, current_user.id
+        )
+        return {
+            "message": "Organization onboarded successfully",
+            "organization": result["organization"],
+            "admin": result["admin"]
         }
-    }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to onboard organization"
+        )
 
 
 @router.post("/organization-admin", response_model=AdminResponse)
@@ -133,13 +142,24 @@ async def create_organization_admin(
     current_user: User = Depends(get_current_super_admin)
 ):
     """
-    Create a new organization admin for an existing organization.
+    Create an organization admin.
     Only accessible by super admins.
     """
-    user, admin = await admin_management_service.create_organization_admin(
-        db, request, current_user.id
-    )
-    return AdminResponse.model_validate(admin)
+    try:
+        user, admin = await admin_management_service.create_organization_admin(
+            db, request, current_user.id
+        )
+        return AdminResponse.model_validate(admin)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create organization admin"
+        )
 
 
 @router.get("/organization/{organization_id}/admins", response_model=AdminListResponse)
@@ -183,27 +203,52 @@ async def get_super_admins(
     Get all super admins.
     Only accessible by super admins.
     """
-    admins = await admin_management_service.get_all_super_admins(db)
-
-    return AdminListResponse(
-        items=[AdminResponse.model_validate(admin) for admin in admins],
-        total=len(admins)
-    )
+    try:
+        admins = await admin_management_service.get_all_super_admins(db)
+        return AdminListResponse(
+            admins=[AdminResponse.model_validate(admin) for admin in admins],
+            total=len(admins)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve super admins"
+        )
 
 
 @router.put("/admin/{admin_id}", response_model=AdminResponse)
 async def update_admin(
     admin_id: UUID,
-    update_data: AdminUpdate,
+    admin_update: AdminUpdate,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_super_admin)
 ):
     """
-    Update admin record.
+    Update an admin's information.
     Only accessible by super admins.
     """
-    admin = await admin_management_service.update_admin(db, admin_id, update_data)
-    return AdminResponse.model_validate(admin)
+    try:
+        admin = await admin_management_service.update_admin(
+            db, admin_id, admin_update, current_user.id
+        )
+        if not admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Admin not found"
+            )
+        return AdminResponse.model_validate(admin)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update admin"
+        )
 
 
 @router.delete("/admin/{admin_id}")
@@ -213,11 +258,26 @@ async def deactivate_admin(
     current_user: User = Depends(get_current_super_admin)
 ):
     """
-    Deactivate admin record.
+    Deactivate an admin.
     Only accessible by super admins.
     """
-    await admin_management_service.deactivate_admin(db, admin_id)
-    return {"message": "Admin deactivated successfully"}
+    try:
+        success = await admin_management_service.deactivate_admin(
+            db, admin_id, current_user.id
+        )
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Admin not found"
+            )
+        return {"message": "Admin deactivated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate admin"
+        )
 
 
 @router.get("/me", response_model=AdminResponse)

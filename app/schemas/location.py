@@ -220,6 +220,4 @@ class LocationStatsResponse(BaseSchema):
     stats: LocationStats
     generated_at: datetime
 
-# Update forward references
-LocationResponse.model_rebuild()
-LocationGroupResponse.model_rebuild()
+# Forward references are handled automatically in Pydantic v2

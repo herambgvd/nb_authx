@@ -281,7 +281,7 @@ async def delete_user(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Delete user account (soft delete)."""
+    """Delete user account permanently."""
     logger.info(f"Deleting user: {user_id}")
 
     try:
@@ -292,13 +292,16 @@ async def delete_user(
                 detail="Not authorized to delete users"
             )
 
-        success = await user_service.delete_user(db, user_id)
-        if not success:
+        user = await user_service.get_user_by_id(db, user_id)
+        if not user:
             logger.warning(f"User not found for deletion: {user_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
+
+        await db.delete(user)
+        await db.commit()
 
         logger.info(f"User deleted successfully: {user_id}")
         return {"message": "User deleted successfully"}

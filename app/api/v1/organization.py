@@ -28,7 +28,7 @@ async def create_organization(
 
     try:
         organization = await organization_service.create_organization(
-            db, org_data, current_user.id
+            db, org_data.dict(), current_user.id
         )
 
         logger.info(f"Organization created successfully: {organization.id}")
@@ -58,8 +58,12 @@ async def list_organizations(
 
     try:
         organizations, total = await organization_service.list_organizations(
-            db, skip=skip, limit=limit, search=search,
-            subscription_tier=subscription_tier, is_active=is_active
+            db,
+            skip=skip,
+            limit=limit,
+            search=search,
+            subscription_tier=subscription_tier,
+            is_active=is_active
         )
 
         logger.info(f"Retrieved {len(organizations)} organizations out of {total} total")
@@ -72,9 +76,12 @@ async def list_organizations(
                     "description": org.description,
                     "subscription_tier": org.subscription_tier,
                     "max_users": org.max_users,
-                    "contact_email": org.contact_email,
+                    "max_locations": org.max_locations,
+                    "email": org.email,
+                    "phone": org.phone,
                     "is_active": org.is_active,
-                    "created_at": org.created_at.isoformat() if org.created_at else None
+                    "created_at": org.created_at.isoformat() if org.created_at else None,
+                    "updated_at": org.updated_at.isoformat() if org.updated_at else None,
                 }
                 for org in organizations
             ],

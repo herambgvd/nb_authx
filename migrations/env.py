@@ -35,7 +35,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Set the database URL from settings (use synchronous URL for migrations)
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", "postgresql://postgres:postgres@localhost:5432/authx_nb")
 
 
 def run_migrations_offline() -> None:

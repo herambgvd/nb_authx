@@ -12,12 +12,13 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, and_, or_, func
 from sqlalchemy.orm import selectinload
+from app.schemas.organization import OrganizationResponse  
 
 from app.models.organization import Organization
 from app.models.organization_settings import OrganizationSettings
 from app.models.user import User
 from app.models.role import Role
-
+from app.schemas.organization import OrganizationResponse 
 logger = logging.getLogger(__name__)
 
 class OrganizationService:
@@ -40,7 +41,7 @@ class OrganizationService:
         db: AsyncSession,
         org_data: Dict[str, Any],
         created_by: Optional[UUID] = None
-    ) -> Organization:
+    ) -> OrganizationResponse:
         """Create a new organization with comprehensive validation."""
         logger.info(f"Creating organization: {org_data.get('name')}")
 
@@ -73,13 +74,19 @@ class OrganizationService:
             slug=slug,
             description=org_data.get('description'),
             subscription_tier=subscription_tier,
-            max_users=org_data.get('max_users', 10),  # Default based on tier
-            contact_email=org_data.get('contact_email'),
-            contact_phone=org_data.get('contact_phone'),
+            max_users=org_data.get('max_users'),
+            max_locations=org_data.get('max_locations'),
+            email=org_data.get('email'),
+            phone=org_data.get('phone'),
             website=org_data.get('website'),
-            industry=org_data.get('industry'),
-            timezone=org_data.get('timezone', 'UTC'),
-            created_by=created_by
+            logo_url=org_data.get('logo_url'),
+            address_line1=org_data.get('address_line1'),
+            address_line2=org_data.get('address_line2'),
+            city=org_data.get('city'),
+            state=org_data.get('state'),
+            postal_code=org_data.get('postal_code'),
+            country=org_data.get('country'),
+            billing_email=org_data.get('billing_email'),
         )
 
         db.add(organization)
@@ -91,32 +98,79 @@ class OrganizationService:
 
         # Create default roles for the organization
         await self._create_default_roles(db, organization.id)
+        user_count = await db.scalar(
+            select(func.count(User.id)).where(User.organization_id == organization.id)
+        )
 
         logger.info(f"Organization created successfully: {organization.id}")
-        return organization
-
-    async def get_organization_by_id(self, db: AsyncSession, org_id: UUID) -> Optional[Organization]:
-        """Get organization by ID with all relationships loaded."""
-        logger.debug(f"Fetching organization by ID: {org_id}")
-
-        result = await db.execute(
-            select(Organization)
-            .options(
-                selectinload(Organization.users),
-                selectinload(Organization.settings),
-                selectinload(Organization.locations),
-                selectinload(Organization.roles)
-            )
-            .where(Organization.id == org_id)
+        return OrganizationResponse(
+            id=organization.id,
+            name=organization.name,
+            slug=organization.slug,
+            description=organization.description,
+            email=organization.email,
+            phone=organization.phone,
+            website=organization.website,
+            address_line1=organization.address_line1,
+            address_line2=organization.address_line2,
+            city=organization.city,
+            state=organization.state,
+            postal_code=organization.postal_code,
+            country=organization.country,
+            is_active=organization.is_active,
+            max_users=organization.max_users,
+            max_locations=organization.max_locations,
+            logo_url=organization.logo_url,
+            subscription_tier=organization.subscription_tier,
+            billing_email=organization.billing_email,
+            created_at=organization.created_at,
+            updated_at=organization.updated_at,
+            user_count=user_count
         )
+
+
+    async def get_organization_by_id(
+        self, db: AsyncSession, org_id: UUID
+    ) -> Optional[OrganizationResponse]:
+        """Get organization by ID with all relationships loaded safely."""
+        logger.debug(f"Fetching organization by ID: {org_id}")
+    
+        result = await db.execute(select(Organization).where(Organization.id == org_id))
         organization = result.scalar_one_or_none()
-
-        if organization:
-            logger.debug(f"Organization found: {organization.name}")
-        else:
+    
+        if not organization:
             logger.debug(f"Organization not found with ID: {org_id}")
-
-        return organization
+            return None
+    
+        # ✅ Explicit user count
+        user_count = await db.scalar(
+        select(func.count(User.id)).where(User.organization_id == organization.id)
+    )
+    
+        return OrganizationResponse(
+            id=organization.id,
+            name=organization.name,
+            slug=organization.slug,
+            description=organization.description,
+            email=organization.email,
+            phone=organization.phone,
+            website=organization.website,
+            address_line1=organization.address_line1,
+            address_line2=organization.address_line2,
+            city=organization.city,
+            state=organization.state,
+            postal_code=organization.postal_code,
+            country=organization.country,
+            is_active=organization.is_active,
+            max_users=organization.max_users,
+            max_locations=organization.max_locations,
+            logo_url=organization.logo_url,
+            subscription_tier=organization.subscription_tier,
+            billing_email=organization.billing_email,
+            created_at=organization.created_at,
+            updated_at=organization.updated_at,
+            user_count=user_count,
+        )
 
     async def get_organization_by_slug(self, db: AsyncSession, slug: str) -> Optional[Organization]:
         """Get organization by slug."""
@@ -154,9 +208,9 @@ class OrganizationService:
 
         # Update allowed fields
         allowed_fields = {
-            'name', 'description', 'subscription_tier', 'max_users',
-            'contact_email', 'contact_phone', 'website', 'industry',
-            'timezone', 'is_active'
+            "name", "description", "subscription_tier", "max_users", "max_locations",
+            "email", "phone", "website", "logo_url", "address_line1", "address_line2",
+            "city", "state", "postal_code", "country", "billing_email", "is_active"
         }
 
         # Update slug if name is being changed
@@ -307,32 +361,52 @@ class OrganizationService:
 
         settings = OrganizationSettings(
             organization_id=org_id,
-            settings_data={
-                "security": {
-                    "password_policy": {
-                        "min_length": 8,
-                        "require_uppercase": True,
-                        "require_lowercase": True,
-                        "require_numbers": True,
-                        "require_special_chars": True
-                    },
-                    "session_timeout": 3600,
-                    "max_login_attempts": 5
-                },
-                "features": {
-                    "multi_factor_auth": False,
-                    "audit_logging": True,
-                    "api_access": True
-                },
-                "notifications": {
-                    "email_notifications": True,
-                    "security_alerts": True
-                }
-            }
+            security_settings={
+                "password_min_length": 8,
+                "password_require_uppercase": True,
+                "password_require_lowercase": True,
+                "password_require_number": True,
+                "password_require_special": True,
+                "password_expiry_days": 90,
+                "login_attempt_limit": 5,
+                "mfa_required": False,
+                "allowed_ip_ranges": [],
+                "session_timeout_minutes": 60
+            },
+            branding_settings={
+                "logo_url": None,
+                "favicon_url": None,
+                "primary_color": "#000000",
+                "secondary_color": "#FFFFFF",
+                "login_page_message": None,
+                "custom_css": None
+            },
+            notification_settings={
+                "email_notifications_enabled": True,
+                "security_alert_contacts": [],
+                "admin_alert_contacts": []
+            },
+            integration_settings={
+                "sso_enabled": False,
+                "sso_provider": None,
+                "sso_config": {},
+                "webhook_endpoints": [],
+                "api_keys_enabled": False
+            },
+            feature_flags={
+                "multi_factor_auth": False,
+                "audit_logging": True,
+                "api_access": True
+            },
+            custom_settings={}
         )
 
         db.add(settings)
         await db.commit()
+        await db.refresh(settings)
+    
+        logger.info(f"Default organization settings created for org {org_id}")
+        return settings
 
     async def _create_default_roles(self, db: AsyncSession, org_id: UUID):
         """Create default roles for organization."""

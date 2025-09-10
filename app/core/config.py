@@ -144,6 +144,87 @@ class Settings(BaseSettings):
     SUPER_ADMIN_PASSWORD: str = Field(env="SUPER_ADMIN_PASSWORD", default="SuperSecurePassword123!")
     ORGANIZATION_APPROVAL_REQUIRED: bool = Field(default=True, env="ORGANIZATION_APPROVAL_REQUIRED")
 
+    # Development Settings - Added missing fields
+    DEV_AUTO_MIGRATIONS: bool = Field(default=True, env="DEV_AUTO_MIGRATIONS")
+    DEV_SEED_DATA: bool = Field(default=True, env="DEV_SEED_DATA")
+    DEV_DEBUG_QUERIES: bool = Field(default=False, env="DEV_DEBUG_QUERIES")
+    DEV_MOCK_EXTERNAL_SERVICES: bool = Field(default=False, env="DEV_MOCK_EXTERNAL_SERVICES")
+
+    # Production Settings - Added missing fields
+    PROD_ENABLE_GZIP: bool = Field(default=True, env="PROD_ENABLE_GZIP")
+    PROD_STATIC_FILE_CACHING: bool = Field(default=True, env="PROD_STATIC_FILE_CACHING")
+    PROD_DATABASE_CONNECTION_POOLING: bool = Field(default=True, env="PROD_DATABASE_CONNECTION_POOLING")
+    PROD_REDIS_CLUSTERING: bool = Field(default=False, env="PROD_REDIS_CLUSTERING")
+
+    # Container Settings - Added missing fields
+    CONTAINER_PORT: int = Field(default=8000, env="CONTAINER_PORT")
+    CONTAINER_WORKERS: int = Field(default=4, env="CONTAINER_WORKERS")
+    CONTAINER_TIMEOUT: int = Field(default=30, env="CONTAINER_TIMEOUT")
+    CONTAINER_MAX_REQUESTS: int = Field(default=1000, env="CONTAINER_MAX_REQUESTS")
+    CONTAINER_MAX_REQUESTS_JITTER: int = Field(default=100, env="CONTAINER_MAX_REQUESTS_JITTER")
+
+    # Health Check Settings - Added missing fields
+    HEALTH_CHECK_PATH: str = Field(default="/health", env="HEALTH_CHECK_PATH")
+    READINESS_CHECK_PATH: str = Field(default="/health/readiness", env="READINESS_CHECK_PATH")
+    LIVENESS_CHECK_PATH: str = Field(default="/health/liveness", env="LIVENESS_CHECK_PATH")
+
+    # SSL/TLS Settings - Added missing fields
+    USE_HTTPS: bool = Field(default=False, env="USE_HTTPS")
+    SSL_CERT_PATH: Optional[str] = Field(default=None, env="SSL_CERT_PATH")
+    SSL_KEY_PATH: Optional[str] = Field(default=None, env="SSL_KEY_PATH")
+    SSL_CA_BUNDLE_PATH: Optional[str] = Field(default=None, env="SSL_CA_BUNDLE_PATH")
+
+    # Additional Configuration - Added missing fields
+    DEFAULT_TIMEZONE: str = Field(default="UTC", env="DEFAULT_TIMEZONE")
+    DEFAULT_PAGE_SIZE: int = Field(default=50, env="DEFAULT_PAGE_SIZE")
+    MAX_PAGE_SIZE: int = Field(default=1000, env="MAX_PAGE_SIZE")
+
+    # Cache Settings - Added missing fields
+    CACHE_DEFAULT_TTL: int = Field(default=3600, env="CACHE_DEFAULT_TTL")
+    CACHE_AUTH_TTL: int = Field(default=1800, env="CACHE_AUTH_TTL")
+    CACHE_USER_TTL: int = Field(default=600, env="CACHE_USER_TTL")
+
+    # Session Settings - Added missing fields
+    SESSION_COOKIE_NAME: str = Field(default="authx_session", env="SESSION_COOKIE_NAME")
+    SESSION_COOKIE_SECURE: bool = Field(default=False, env="SESSION_COOKIE_SECURE")
+    SESSION_COOKIE_HTTPONLY: bool = Field(default=True, env="SESSION_COOKIE_HTTPONLY")
+    SESSION_COOKIE_SAMESITE: str = Field(default="lax", env="SESSION_COOKIE_SAMESITE")
+
+    # Email Template Settings - Added missing fields
+    EMAIL_TEMPLATE_WELCOME_SUBJECT: str = Field(default="Welcome to AuthX!", env="EMAIL_TEMPLATE_WELCOME_SUBJECT")
+    EMAIL_TEMPLATE_PASSWORD_RESET_SUBJECT: str = Field(default="Password Reset Request", env="EMAIL_TEMPLATE_PASSWORD_RESET_SUBJECT")
+    EMAIL_TEMPLATE_VERIFICATION_SUBJECT: str = Field(default="Verify Your Email Address", env="EMAIL_TEMPLATE_VERIFICATION_SUBJECT")
+    EMAIL_TEMPLATE_SECURITY_ALERT_SUBJECT: str = Field(default="Security Alert", env="EMAIL_TEMPLATE_SECURITY_ALERT_SUBJECT")
+
+    # Rate Limit Settings - Added missing fields
+    RATE_LIMIT_LOGIN: str = Field(default="5_per_minute", env="RATE_LIMIT_LOGIN")
+    RATE_LIMIT_REGISTER: str = Field(default="3_per_minute", env="RATE_LIMIT_REGISTER")
+    RATE_LIMIT_PASSWORD_RESET: str = Field(default="2_per_minute", env="RATE_LIMIT_PASSWORD_RESET")
+    RATE_LIMIT_EMAIL_VERIFICATION: str = Field(default="3_per_minute", env="RATE_LIMIT_EMAIL_VERIFICATION")
+
+    # Webhook Settings - Added missing fields
+    WEBHOOK_USER_CREATED_URL: Optional[str] = Field(default=None, env="WEBHOOK_USER_CREATED_URL")
+    WEBHOOK_USER_UPDATED_URL: Optional[str] = Field(default=None, env="WEBHOOK_USER_UPDATED_URL")
+    WEBHOOK_ORGANIZATION_CREATED_URL: Optional[str] = Field(default=None, env="WEBHOOK_ORGANIZATION_CREATED_URL")
+    WEBHOOK_SECURITY_ALERT_URL: Optional[str] = Field(default=None, env="WEBHOOK_SECURITY_ALERT_URL")
+    WEBHOOK_SECRET_KEY: str = Field(default="your-webhook-secret-key", env="WEBHOOK_SECRET_KEY")
+    WEBHOOK_TIMEOUT: int = Field(default=30, env="WEBHOOK_TIMEOUT")
+    WEBHOOK_RETRY_ATTEMPTS: int = Field(default=3, env="WEBHOOK_RETRY_ATTEMPTS")
+
+    # APM Settings - Added missing fields
+    APM_ENABLED: bool = Field(default=False, env="APM_ENABLED")
+    APM_SERVICE_NAME: str = Field(default="authx", env="APM_SERVICE_NAME")
+    APM_SERVICE_VERSION: str = Field(default="1.0.0", env="APM_SERVICE_VERSION")
+    APM_ENVIRONMENT: str = Field(default="development", env="APM_ENVIRONMENT")
+
+    # New Relic Settings - Added missing fields
+    NEW_RELIC_LICENSE_KEY: Optional[str] = Field(default=None, env="NEW_RELIC_LICENSE_KEY")
+    NEW_RELIC_APP_NAME: str = Field(default="AuthX", env="NEW_RELIC_APP_NAME")
+
+    # Datadog Settings - Added missing fields
+    DATADOG_API_KEY: Optional[str] = Field(default=None, env="DATADOG_API_KEY")
+    DATADOG_APP_KEY: Optional[str] = Field(default=None, env="DATADOG_APP_KEY")
+
     # Feature Flags (Enhanced)
     FEATURES: Dict[str, bool] = Field(default={
         "user_registration": True,
@@ -161,6 +242,22 @@ class Settings(BaseSettings):
         "google_maps_integration": True,
         "advanced_email_service": True
     })
+
+    # Feature Flags from .env - Added missing fields
+    FEATURES_USER_REGISTRATION: bool = Field(default=True, env="FEATURES_USER_REGISTRATION")
+    FEATURES_PASSWORD_RESET: bool = Field(default=True, env="FEATURES_PASSWORD_RESET")
+    FEATURES_EMAIL_VERIFICATION: bool = Field(default=True, env="FEATURES_EMAIL_VERIFICATION")
+    FEATURES_SOCIAL_LOGIN: bool = Field(default=False, env="FEATURES_SOCIAL_LOGIN")
+    FEATURES_API_ACCESS: bool = Field(default=True, env="FEATURES_API_ACCESS")
+    FEATURES_AUDIT_LOGGING: bool = Field(default=True, env="FEATURES_AUDIT_LOGGING")
+    FEATURES_ADVANCED_ANALYTICS: bool = Field(default=True, env="FEATURES_ADVANCED_ANALYTICS")
+    FEATURES_LOCATION_MANAGEMENT: bool = Field(default=True, env="FEATURES_LOCATION_MANAGEMENT")
+    FEATURES_ORGANIZATION_MANAGEMENT: bool = Field(default=True, env="FEATURES_ORGANIZATION_MANAGEMENT")
+    FEATURES_ROLE_BASED_ACCESS: bool = Field(default=True, env="FEATURES_ROLE_BASED_ACCESS")
+    FEATURES_SUPER_ADMIN_PANEL: bool = Field(default=True, env="FEATURES_SUPER_ADMIN_PANEL")
+    FEATURES_SYSTEM_MONITORING: bool = Field(default=True, env="FEATURES_SYSTEM_MONITORING")
+    FEATURES_GOOGLE_MAPS_INTEGRATION: bool = Field(default=True, env="FEATURES_GOOGLE_MAPS_INTEGRATION")
+    FEATURES_ADVANCED_EMAIL_SERVICE: bool = Field(default=True, env="FEATURES_ADVANCED_EMAIL_SERVICE")
 
     # Celery Settings (for background tasks)
     CELERY_BROKER_URL: str = Field(env="CELERY_BROKER_URL", default="redis://localhost:6379/1")
@@ -204,7 +301,8 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-
+        # Allow extra fields to prevent validation errors
+        extra = "allow"
         # Allow environment variables to override file settings
         env_prefix = ""
 

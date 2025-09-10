@@ -51,14 +51,30 @@ class GoogleMapsService:
         self.timeout = settings.GOOGLE_API_TIMEOUT
         self.retry_attempts = settings.GOOGLE_API_RETRY_ATTEMPTS
 
-        if not self.api_key:
-            logger.warning("Google Maps API key not configured")
-            self.client = None
-        else:
-            self.client = googlemaps.Client(key=self.api_key)
+        # Don't initialize client immediately to prevent startup failures
+        self.client = None
+        self._client_initialized = False
 
         # HTTP client for async requests
         self.http_client = httpx.AsyncClient(timeout=self.timeout)
+
+    def _init_client(self):
+        """Initialize Google Maps client lazily."""
+        if self._client_initialized:
+            return
+
+        if not self.api_key or self.api_key == "your-google-maps-api-key":
+            logger.warning("Google Maps API key not configured or using default placeholder")
+            self.client = None
+        else:
+            try:
+                self.client = googlemaps.Client(key=self.api_key)
+                logger.info("Google Maps client initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Google Maps client: {e}")
+                self.client = None
+
+        self._client_initialized = True
 
     async def __aenter__(self):
         return self
@@ -87,6 +103,7 @@ class GoogleMapsService:
             LocationData object with coordinates and details
         """
         self._check_api_key()
+        self._init_client()
 
         try:
             # Run in thread pool to avoid blocking
@@ -142,6 +159,7 @@ class GoogleMapsService:
             LocationData object with address details
         """
         self._check_api_key()
+        self._init_client()
 
         try:
             loop = asyncio.get_event_loop()
@@ -194,6 +212,7 @@ class GoogleMapsService:
             PlaceDetails object with comprehensive place information
         """
         self._check_api_key()
+        self._init_client()
 
         try:
             loop = asyncio.get_event_loop()
@@ -255,6 +274,7 @@ class GoogleMapsService:
             List of PlaceDetails objects
         """
         self._check_api_key()
+        self._init_client()
 
         try:
             loop = asyncio.get_event_loop()
@@ -370,6 +390,7 @@ class GoogleMapsService:
             Dictionary with distance and duration information
         """
         self._check_api_key()
+        self._init_client()
 
         try:
             loop = asyncio.get_event_loop()

@@ -1,0 +1,1578 @@
+{
+	"info": {
+		"_postman_id": "authx-complete-collection-2024",
+		"name": "AuthX - Complete API Collection",
+		"description": "Comprehensive API collection for AuthX Authentication & Authorization Service\n\n## Features:\n- 72+ endpoints across 9 modules\n- Complete authentication flow\n- Organization management\n- User management\n- Role-based access control\n- Location management\n- Admin operations\n- Health monitoring\n- Audit logging\n\n## Setup Instructions:\n1. Set environment variables in Postman\n2. Run authentication requests first to get tokens\n3. Use tokens in subsequent requests\n\n## Environment Variables Required:\n- `base_url`: http://localhost:8000\n- `access_token`: (auto-set by auth requests)\n- `refresh_token`: (auto-set by auth requests)\n- `organization_id`: (set after organization creation)\n- `user_id`: (set after user operations)\n\nVersion: 1.0.0\nLast Updated: 2024",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "🔐 Authentication",
+			"description": "Authentication and authorization endpoints",
+			"item": [
+				{
+					"name": "Register User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"SecurePassword123!\",\n  \"username\": \"testuser\",\n  \"first_name\": \"Test\",\n  \"last_name\": \"User\",\n  \"organization_name\": \"Test Organization\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/register",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "register"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const responseJson = pm.response.json();",
+									"    pm.environment.set('access_token', responseJson.access_token);",
+									"    pm.environment.set('refresh_token', responseJson.refresh_token);",
+									"    console.log('Tokens saved to environment');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"SecurePassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "login"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const responseJson = pm.response.json();",
+									"    pm.environment.set('access_token', responseJson.access_token);",
+									"    console.log('Access token refreshed');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "refresh"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/logout",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "logout"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User Info",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "me"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Request Password Reset",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/password-reset",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "password-reset"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Confirm Password Reset",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"reset-token-here\",\n  \"new_password\": \"NewSecurePassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/password-reset/confirm",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "password-reset", "confirm"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"verification-token-here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/verify-email",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "verify-email"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Resend Email Verification",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/resend-verification",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "auth", "resend-verification"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "👥 User Management",
+			"description": "User CRUD operations and profile management",
+			"item": [
+				{
+					"name": "Create User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newuser@example.com\",\n  \"username\": \"newuser\",\n  \"first_name\": \"New\",\n  \"last_name\": \"User\",\n  \"password\": \"SecurePassword123!\",\n  \"role_id\": \"role-uuid-here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{organization_id}}/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{organization_id}}", "users"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Users List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{organization_id}}/users?page=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{organization_id}}", "users"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{organization_id}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{organization_id}}", "users", "{{user_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Updated\",\n  \"last_name\": \"User\",\n  \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{organization_id}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{organization_id}}", "users", "{{user_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{organization_id}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{organization_id}}", "users", "{{user_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "me"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Current User Profile",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Updated\",\n  \"last_name\": \"Profile\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "me"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Users",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"user\",\n  \"filters\": {\n    \"is_active\": true\n  },\n  \"page\": 1,\n  \"limit\": 20\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/{{organization_id}}/search",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "users", "{{organization_id}}", "search"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🏢 Organization Management",
+			"description": "Organization operations and settings",
+			"item": [
+				{
+					"name": "Create Organization",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const responseJson = pm.response.json();",
+									"    pm.environment.set('organization_id', responseJson.id);",
+									"    console.log('Organization ID saved to environment');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test Organization\",\n  \"description\": \"A test organization for API testing\",\n  \"website\": \"https://example.com\",\n  \"industry\": \"Technology\",\n  \"size\": \"SMALL\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organizations List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations?page=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations", "{{organization_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Organization",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Organization Name\",\n  \"description\": \"Updated description\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations", "{{organization_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Organization",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations", "{{organization_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/{{organization_id}}/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations", "{{organization_id}}", "stats"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Organizations",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"test\",\n  \"filters\": {\n    \"is_active\": true\n  },\n  \"page\": 1,\n  \"limit\": 20\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/organizations/search",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "organizations", "search"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔐 Role Management",
+			"description": "Role-based access control operations",
+			"item": [
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test Role\",\n  \"description\": \"A test role for API testing\",\n  \"slug\": \"test-role\",\n  \"permissions\": {\n    \"users\": [\"read\", \"create\"],\n    \"organizations\": [\"read\"]\n  },\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Roles List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles?page=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Role Name\",\n  \"description\": \"Updated description\",\n  \"permissions\": {\n    \"users\": [\"read\", \"create\", \"update\"],\n    \"organizations\": [\"read\"]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles", "{{role_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role Permissions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles/{{role_id}}/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles", "{{role_id}}", "permissions"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role Permissions",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"permissions\": {\n    \"users\": [\"read\", \"create\", \"update\", \"delete\"],\n    \"organizations\": [\"read\", \"update\"],\n    \"roles\": [\"read\"]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/roles/{{role_id}}/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "roles", "{{role_id}}", "permissions"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role Hierarchy",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roles/{{organization_id}}/hierarchy",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "roles", "{{organization_id}}", "hierarchy"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📍 Location Management",
+			"description": "Location and geographic operations",
+			"item": [
+				{
+					"name": "Create Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test Location\",\n  \"description\": \"A test location\",\n  \"address\": \"123 Test Street, Test City, TC 12345\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"location_type\": \"OFFICE\",\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/locations",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "locations"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Locations List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/locations?page=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "locations"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "locations", "{{location_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Location Name\",\n  \"description\": \"Updated description\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "locations", "{{location_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Location",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "locations", "{{location_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Geocode Address",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"address\": \"1600 Amphitheatre Parkway, Mountain View, CA\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/geocode",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "geocode"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reverse Geocode",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 37.4219999,\n  \"longitude\": -122.0840575\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/reverse-geocode",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "reverse-geocode"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Nearby Places",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 37.4219999,\n  \"longitude\": -122.0840575,\n  \"radius\": 5000,\n  \"place_type\": \"restaurant\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/search-nearby",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "search-nearby"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Calculate Distance",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"origin_latitude\": 37.4219999,\n  \"origin_longitude\": -122.0840575,\n  \"destination_latitude\": 37.7749,\n  \"destination_longitude\": -122.4194\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/calculate-distance",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "calculate-distance"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Location Group",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test Location Group\",\n  \"description\": \"A test location group\",\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/groups",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "groups"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location Groups",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/groups",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "groups"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Location Access Control",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/locations/{{organization_id}}/locations/{{location_id}}/access",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "locations", "{{organization_id}}", "locations", "{{location_id}}", "access"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "⚙️ Admin Operations",
+			"description": "Administrative operations and super admin functions",
+			"item": [
+				{
+					"name": "Bootstrap Super Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"superadmin@authx.com\",\n  \"password\": \"SuperSecurePassword123!\",\n  \"username\": \"superadmin\",\n  \"first_name\": \"Super\",\n  \"last_name\": \"Admin\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/bootstrap-super-admin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "bootstrap-super-admin"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Super Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin2@authx.com\",\n  \"password\": \"AdminPassword123!\",\n  \"username\": \"admin2\",\n  \"first_name\": \"Admin\",\n  \"last_name\": \"Two\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/super-admin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "super-admin"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Onboard Organization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"organization_name\": \"New Organization\",\n  \"organization_description\": \"A new organization\",\n  \"admin_email\": \"orgadmin@neworg.com\",\n  \"admin_password\": \"OrgAdminPassword123!\",\n  \"admin_first_name\": \"Org\",\n  \"admin_last_name\": \"Admin\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/onboard-organization",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "onboard-organization"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Organization Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"orgadmin2@org.com\",\n  \"password\": \"OrgAdminPassword123!\",\n  \"username\": \"orgadmin2\",\n  \"first_name\": \"Org Admin\",\n  \"last_name\": \"Two\",\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/organization-admin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "organization-admin"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Organization Admins",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/organization/{{organization_id}}/admins",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "organization", "{{organization_id}}", "admins"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Super Admins",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/super-admins",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "super-admins"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Admin",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"permissions\": {\n    \"users\": [\"read\", \"create\", \"update\"],\n    \"organizations\": [\"read\"]\n  },\n  \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/admin/{{admin_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "admin", "{{admin_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Deactivate Admin",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/admin/{{admin_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "admin", "admin", "{{admin_id}}"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📊 Audit & Monitoring",
+			"description": "Audit logs and security monitoring",
+			"item": [
+				{
+					"name": "Get Audit Logs",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/{{organization_id}}/logs?page=1&limit=50&action=login&start_date=2024-01-01&end_date=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "audit", "{{organization_id}}", "logs"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "action",
+									"value": "login"
+								},
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Export Audit Logs",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start_date\": \"2024-01-01\",\n  \"end_date\": \"2024-12-31\",\n  \"format\": \"csv\",\n  \"filters\": {\n    \"action\": \"login\",\n    \"user_id\": \"{{user_id}}\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/audit/{{organization_id}}/export",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "audit", "{{organization_id}}", "export"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🛠️ Operations",
+			"description": "System operations and maintenance",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/health",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "operations", "health"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Detailed Health Check",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/health/detailed",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "operations", "health", "detailed"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Service Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/info",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "operations", "info"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "System Metrics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/metrics",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "operations", "metrics"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Database Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/database/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "operations", "database", "status"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cache Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/operations/cache/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "operations", "cache", "status"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🏥 Health Endpoints",
+			"description": "Application health and readiness checks",
+			"item": [
+				{
+					"name": "Basic Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Detailed Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health/detailed",
+							"host": ["{{base_url}}"],
+							"path": ["health", "detailed"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Readiness Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health/readiness",
+							"host": ["{{base_url}}"],
+							"path": ["health", "readiness"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Liveness Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health/liveness",
+							"host": ["{{base_url}}"],
+							"path": ["health", "liveness"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Email Service Metrics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/health/email-metrics",
+							"host": ["{{base_url}}"],
+							"path": ["health", "email-metrics"]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-refresh token if expired",
+					"const accessToken = pm.environment.get('access_token');",
+					"const refreshToken = pm.environment.get('refresh_token');",
+					"",
+					"if (accessToken && refreshToken) {",
+					"    // Check if token is about to expire (simplified check)",
+					"    // In a real scenario, you'd decode the JWT and check exp claim",
+					"    console.log('Token check: Access token present');",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "organization_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "role_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "location_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "admin_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+

@@ -52,6 +52,7 @@ from .role import (
     RoleListResponse,
     PermissionBase,
     PermissionResponse,
+    RoleHierarchyItem,  # Added missing export
 )
 
 # Location schemas
@@ -142,6 +143,7 @@ __all__ = [
     "RoleListResponse",
     "PermissionBase",
     "PermissionResponse",
+    "RoleHierarchyItem",  # Added missing export
 
     # Location
     "LocationBase",

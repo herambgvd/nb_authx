@@ -48,12 +48,12 @@ async def get_audit_logs(
         if user_id:
             query = query.where(AuditLog.user_id == user_id)
         if start_date:
-            query = query.where(AuditLog.timestamp >= start_date)
+            query = query.where(AuditLog.created_at >= start_date)
         if end_date:
-            query = query.where(AuditLog.timestamp <= end_date)
+            query = query.where(AuditLog.created_at <= end_date)
 
         # Add ordering and pagination
-        query = query.order_by(desc(AuditLog.timestamp)).offset(skip).limit(limit)
+        query = query.order_by(desc(AuditLog.created_at)).offset(skip).limit(limit)
 
         # Execute query
         result = await db.execute(query)
@@ -63,7 +63,7 @@ async def get_audit_logs(
         return [
             {
                 "id": str(log.id),
-                "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                "timestamp": log.created_at.isoformat() if log.created_at else None,
                 "event_type": log.event_type,
                 "resource_type": log.resource_type,
                 "action": log.action,

@@ -48,7 +48,32 @@ async def create_organization(
             )
 
         logger.info(f"Organization created successfully: {organization.id}")
-        return OrganizationResponse.model_validate(organization)
+
+        return OrganizationResponse(
+            id=str(organization.id),
+            name=organization.name,
+            slug=organization.slug,
+            description=organization.description,
+            domain=organization.domain,
+            email=organization.email,
+            phone=organization.phone,
+            website=organization.website,
+            address_line1=organization.address_line1,
+            address_line2=organization.address_line2,
+            city=organization.city,
+            state=organization.state,
+            postal_code=organization.postal_code,
+            country=organization.country,
+            max_users=organization.max_users,
+            max_locations=organization.max_locations,
+            logo_url=organization.logo_url,
+            subscription_tier=organization.subscription_tier,
+            billing_email=organization.billing_email,
+            is_active=organization.is_active,
+            created_at=organization.created_at,
+            updated_at=organization.updated_at,
+            user_count=0
+        )
 
     except ValueError as e:
         logger.error(f"Validation error during organization creation: {e}")
@@ -59,7 +84,7 @@ async def create_organization(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Organization creation failed: {e}")
+        logger.error(f"Organization creation failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create organization"
@@ -221,71 +246,46 @@ async def update_organization(
         organization = await organization_service.update_organization(
             db,
             organization_id,
-            org_data.model_dump(exclude_unset=True)
+            org_data
         )
 
         if not organization:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Organization not found"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Update failed. No changes applied."
             )
 
         logger.info(f"Organization updated successfully: {organization.id}")
         return OrganizationResponse.model_validate(organization)
 
-    except ValueError as e:
-        logger.error(f"Validation error during organization update: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Organization update failed: {e}")
+        logger.error(f"Organization update failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update organization"
+            detail=f"Failed to update organization: {str(e)}"
         )
 
 
-@router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{organization_id}", status_code=status.HTTP_200_OK)
 async def delete_organization(
     organization_id: UUID,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_super_admin)
 ):
-    """Soft delete an organization with proper validation."""
+    """Hard delete an organization with proper validation."""
     logger.info(f"Deleting organization: {organization_id}")
 
-    try:
-        # First check if organization exists
-        existing_org = await organization_service.get_organization(db, organization_id)
-        if not existing_org:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Organization not found"
-            )
+    success = await organization_service.delete_organization(db, organization_id)
 
-        success = await organization_service.delete_organization(db, organization_id)
-
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Organization not found"
-            )
-
-        logger.info(f"Organization deleted successfully: {organization_id}")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Organization deletion failed: {e}")
+    if not success:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete organization"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Delete operation failed"
         )
 
+    return {"message": f"Organization {organization_id} deleted successfully"}
 
 @router.get("/{organization_id}/stats", response_model=OrganizationStats)
 async def get_organization_stats(
@@ -376,3 +376,13 @@ async def bulk_organization_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Bulk action failed"
         )
+
+
+
+
+# {
+#   "error": "1 validation error for OrganizationResponse\nuser_count\n  Error extracting attribute: MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s) [type=get_attribute_error, input_value=<Organization(id=3afe73e4...lug='bizclock-pvt-ltd')>, input_type=Organization]\n    For further information visit https://errors.pydantic.dev/2.11/v/get_attribute_error",
+#   "status_code": 400,
+#   "timestamp": 1757500384.7616715,
+#   "path": "/api/v1/organizations/"
+# }

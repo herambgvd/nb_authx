@@ -298,10 +298,12 @@ class AuthService:
 
             # Create new tokens using user data
             auth_context = {"refresh_operation": True}
-            new_access_token = await self.create_access_token(user_data, auth_context)
+            new_access_token = await self.create_access_token(user_data, {"refresh_operation": True})
+            new_refresh_token = await self.create_refresh_token(user_data)  # 👈 add this
 
             return {
                 "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
                 "token_type": "bearer",
                 "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
             }

@@ -306,7 +306,6 @@ class UserService:
             return False
 
         # Soft delete by deactivating
-        user.is_active = False
         user.updated_at = datetime.utcnow()
         await db.commit()
 
@@ -368,52 +367,49 @@ class UserService:
         organization_id: Optional[UUID] = None
     ) -> Tuple[List[User], int]:
         """List users with pagination and filtering."""
-        logger.debug(f"Listing users - skip: {skip}, limit: {limit}, search: {search}")
+        logger.debug(f"Listing users - skip: {skip}, limit: {limit}, search: {search}, org_id: {organization_id}")
 
+        # Base query
         query = select(User).options(
             selectinload(User.organization),
             selectinload(User.roles)
         )
+        count_query = select(func.count(User.id)).select_from(User)
+        conditions = []
 
         # Apply filters
         if search:
             search_term = f"%{search}%"
-            query = query.where(
+            conditions.append(
                 or_(
                     User.first_name.ilike(search_term),
                     User.last_name.ilike(search_term),
                     User.email.ilike(search_term),
-                    User.username.ilike(search_term)
+                    User.username.ilike(search_term),
                 )
             )
 
+        # ✅ Organization filter
         if organization_id:
-            query = query.where(User.organization_id == organization_id)
+            conditions.append(User.organization_id == organization_id)
 
-        # Get total count
-        count_query = select(func.count(User.id))
-        if search:
-            count_query = count_query.where(
-                or_(
-                    User.first_name.ilike(search_term),
-                    User.last_name.ilike(search_term),
-                    User.email.ilike(search_term),
-                    User.username.ilike(search_term)
-                )
-            )
-        if organization_id:
-            count_query = count_query.where(User.organization_id == organization_id)
+        # Apply filters to both queries
+        if conditions:
+            query = query.where(and_(*conditions))
+            count_query = count_query.where(and_(*conditions))
 
-        count_result = await db.execute(count_query)
-        total = count_result.scalar()
+        # ✅ Total count
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
 
-        # Get paginated results
+        # ✅ Pagination
         query = query.offset(skip).limit(limit).order_by(User.created_at.desc())
         result = await db.execute(query)
         users = result.scalars().all()
 
         logger.debug(f"Found {len(users)} users out of {total} total")
-        return list(users), total
+        return users, total
+
 
 # Create singleton instance
 user_service = UserService()

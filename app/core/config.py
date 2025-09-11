@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     PASSWORD_REQUIRE_SPECIAL: bool = Field(default=True, env="PASSWORD_REQUIRE_SPECIAL")
 
     # Database Settings
-    DATABASE_URL: str = Field(env="DATABASE_URL", default="postgresql+asyncpg://postgres:varanasi@localhost:5432/nb_auth")
-    ALEMBIC_DATABASE_URL: str = Field(env="ALEMBIC_DATABASE_URL", default="postgresql://postgres:varanasi@localhost:5432/nb_auth")
+    DATABASE_URL: str = Field(env="DATABASE_URL", default="postgresql+asyncpg://postgres:postgres@localhost:5432/nb_auth")
+    ALEMBIC_DATABASE_URL: str = Field(env="ALEMBIC_DATABASE_URL", default="postgresql://postgres:postgres@localhost:5432/nb_auth")
     DATABASE_POOL_SIZE: int = 10
     DATABASE_POOL_OVERFLOW: int = 20
     DATABASE_POOL_TIMEOUT: int = 30

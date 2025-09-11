@@ -85,21 +85,45 @@ class OrganizationService:
         logger.info(f"Organization created: {organization.id} - {organization.name}")
         return organization
 
-    async def get_organization(self, db: AsyncSession, org_id: UUID) -> Optional[Organization]:
-        """Get organization by ID with related data."""
+    async def get_organization(self, db: AsyncSession, org_id: UUID) -> Optional[dict]:
+        """Fetch organization with user count precomputed."""
         result = await db.execute(
-            select(Organization)
-            .options(selectinload(Organization.users))
-            .where(Organization.id == org_id)
+            select(Organization).where(Organization.id == org_id)
         )
-        return result.scalar_one_or_none()
+        organization = result.scalar_one_or_none()
+
+        if not organization:
+            return None
+
+        # ✅ Count users explicitly
+        user_count_result = await db.execute(
+            select(func.count(User.id)).where(User.organization_id == org_id)
+        )
+        user_count = user_count_result.scalar() or 0
+
+        # ✅ Return dict instead of raw ORM
+        return {
+            **organization.__dict__,
+            "user_count": user_count
+        }
+
 
     async def get_organization_by_slug(self, db: AsyncSession, slug: str) -> Optional[Organization]:
-        """Get organization by slug."""
-        result = await db.execute(
-            select(Organization).where(Organization.slug == slug)
-        )
-        return result.scalar_one_or_none()
+        """Fetch organization by slug (case-insensitive, exact match)."""
+        if not slug:
+            return None
+
+        normalized_slug = slug.strip().lower()
+
+        try:
+            result = await db.execute(
+                select(Organization).where(func.lower(Organization.slug) == normalized_slug)
+            )
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"DB error while fetching organization by slug={normalized_slug}: {e}", exc_info=True)
+            return None
+    
 
     async def get_organizations(
         self,
@@ -159,47 +183,39 @@ class OrganizationService:
         org_data: OrganizationUpdate
     ) -> Organization:
         """Update organization with validation."""
-
         organization = await self.get_organization(db, org_id)
         if not organization:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Organization not found"
             )
-
-        # Check name uniqueness if name is being updated
-        if org_data.name and org_data.name != organization.name:
+    
+        # If name is being updated, regenerate slug
+        if org_data.name and org_data.name.strip() != organization.name:
             new_slug = self._generate_slug(org_data.name)
-            existing_org = await self._get_by_name_or_slug(db, org_data.name, new_slug)
-            if existing_org and existing_org.id != org_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Organization with this name already exists"
-                )
+    
+            # Ensure unique slug
+            existing_org = await self.get_organization_by_slug(db, new_slug)
+            counter = 1
+            while existing_org and existing_org.id != org_id:
+                new_slug = f"{new_slug}-{counter}"
+                existing_org = await self.get_organization_by_slug(db, new_slug)
+                counter += 1
+    
             organization.slug = new_slug
-
-        # Check domain uniqueness if domain is being updated
-        if org_data.domain and org_data.domain != organization.domain:
-            existing_domain = await self._get_by_domain(db, org_data.domain)
-            if existing_domain and existing_domain.id != org_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Organization with this domain already exists"
-                )
-
-        # Update fields
-        update_data = org_data.dict(exclude_unset=True)
+    
+        # Update other fields
+        update_data = org_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
-            setattr(organization, field, value)
-
+            if hasattr(organization, field) and value is not None:
+                setattr(organization, field, value)
+    
         await db.commit()
         await db.refresh(organization)
-
-        logger.info(f"Organization updated: {organization.id} - {organization.name}")
         return organization
 
     async def delete_organization(self, db: AsyncSession, org_id: UUID) -> bool:
-        """Soft delete organization and handle related data."""
+        """Hard delete organization from the database."""
 
         organization = await self.get_organization(db, org_id)
         if not organization:
@@ -208,18 +224,18 @@ class OrganizationService:
                 detail="Organization not found"
             )
 
-        # Check if organization has users
+        # Optionally, check if organization has users before deleting
         if organization.users:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete organization with active users. Transfer or deactivate users first."
             )
 
-        # Soft delete by deactivating
-        organization.is_active = False
+        # Hard delete
+        await db.delete(organization)
         await db.commit()
 
-        logger.info(f"Organization deactivated: {organization.id} - {organization.name}")
+        logger.info(f"Organization permanently deleted: {organization.id} - {organization.name}")
         return True
 
     async def get_organization_stats(self, db: AsyncSession, org_id: UUID) -> OrganizationStats:
@@ -270,12 +286,13 @@ class OrganizationService:
             )
         )
 
-    async def bulk_action(
+    async def bulk_organization_action(
         self,
         db: AsyncSession,
         organization_ids: List[UUID],
-        action: str
-    ) -> Dict[str, Any]:
+        action: str,
+        current_user_id: UUID
+    ) -> int:
         """Perform bulk actions on organizations."""
 
         # Get organizations
@@ -291,7 +308,6 @@ class OrganizationService:
             )
 
         success_count = 0
-        errors = []
 
         for org in organizations:
             try:
@@ -302,47 +318,50 @@ class OrganizationService:
                     org.is_active = False
                     success_count += 1
                 elif action == "delete":
-                    # Check if has users before deletion
-                    if org.users:
-                        errors.append(f"Organization {org.name} has active users")
+                    # Soft delete only if no users
+                    if hasattr(org, "users") and org.users:
+                        logger.warning(f"Org {org.id} not deleted - has users")
                     else:
                         org.is_active = False
                         success_count += 1
+                else:
+                    raise ValueError(f"Unsupported action: {action}")
+    
             except Exception as e:
-                errors.append(f"Error processing organization {org.name}: {str(e)}")
+                logger.error(f"Error processing organization {org.id}: {e}")
 
         await db.commit()
 
-        return {
-            "success_count": success_count,
-            "total_count": len(organization_ids),
-            "errors": errors
-        }
+        logger.info(
+        f"Bulk action '{action}' by user {current_user_id}: "
+            f"{success_count}/{len(organization_ids)} organizations updated"
+        )
+        return success_count
 
     # Helper methods
 
     def _generate_slug(self, name: str) -> str:
-        """Generate URL-friendly slug from organization name."""
-        slug = re.sub(r'[^\w\s-]', '', name.lower())
-        slug = re.sub(r'[-\s]+', '-', slug)
-        return slug.strip('-')
+        """Generate a clean, lowercase, URL-friendly slug from organization name."""
+        if not name:
+            return ""
+        slug = name.lower().strip()
+        slug = re.sub(r"[^\w\s-]", "", slug)   # remove special chars
+        slug = re.sub(r"[-\s]+", "-", slug)    # replace spaces & dashes with single dash
+        return slug.strip("-")
 
-    async def _get_by_name_or_slug(
-        self,
-        db: AsyncSession,
-        name: str,
-        slug: str
-    ) -> Optional[Organization]:
-        """Check if organization exists by name or slug."""
+
+    async def _get_by_name_or_slug(self, db: AsyncSession, name: str, slug: str) -> Optional[Organization]:
+        """Check if organization exists by name or slug (case-insensitive)."""
         result = await db.execute(
             select(Organization).where(
                 or_(
                     Organization.name.ilike(name),
-                    Organization.slug == slug
+                    func.lower(Organization.slug) == slug.lower()
                 )
             )
         )
         return result.scalar_one_or_none()
+
 
     async def _get_by_domain(self, db: AsyncSession, domain: str) -> Optional[Organization]:
         """Check if organization exists by domain."""

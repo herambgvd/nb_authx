@@ -1,0 +1,1093 @@
+{
+	"info": {
+		"_postman_id": "authx-api-collection-v2",
+		"name": "AuthX API Collection - Complete",
+		"description": "Complete API collection for AuthX - Multi-tenant Authentication and Authorization Service with Organizational Scoping",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "authx-api-v2"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-refresh token if expired",
+					"const tokenExpiry = pm.collectionVariables.get('token_expiry');",
+					"const currentTime = new Date().getTime();",
+					"",
+					"if (tokenExpiry && currentTime > tokenExpiry) {",
+					"    console.log('Token expired, clearing variables');",
+					"    pm.collectionVariables.unset('access_token');",
+					"    pm.collectionVariables.unset('token_expiry');",
+					"}"
+				]
+			}
+		}
+	],
+	"item": [
+		{
+			"name": "🔐 Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', response.access_token);",
+									"    ",
+									"    // Calculate expiry time",
+									"    const expiryTime = new Date().getTime() + (response.expires_in * 1000);",
+									"    pm.collectionVariables.set('token_expiry', expiryTime);",
+									"    ",
+									"    console.log('Login successful, token saved');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "username",
+									"value": "{{login_email}}",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "{{login_password}}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Get Current User Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "me"]
+						}
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🏢 Organizations (Super Admin)",
+			"item": [
+				{
+					"name": "Create Organization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Organization\",\n  \"slug\": \"new-org\",\n  \"description\": \"A new organization for testing\",\n  \"max_users\": 100\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/organizations",
+							"host": ["{{base_url}}"],
+							"path": ["organizations"]
+						}
+					}
+				},
+				{
+					"name": "List All Organizations (Super Admin)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/organizations?page=1&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["organizations"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "size",
+									"value": "20"
+								},
+								{
+									"key": "is_active",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "search",
+									"value": "",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Organization by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["organizations", "{{organization_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Organization by Slug (Super Admin)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/organizations/slug/{{organization_slug}}",
+							"host": ["{{base_url}}"],
+							"path": ["organizations", "slug", "{{organization_slug}}"]
+						}
+					}
+				},
+				{
+					"name": "Update Organization",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Organization Name\",\n  \"description\": \"Updated description\",\n  \"max_users\": 200\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["organizations", "{{organization_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Organization (Super Admin)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/organizations/{{organization_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["organizations", "{{organization_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Organization Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/organizations/{{organization_id}}/stats",
+							"host": ["{{base_url}}"],
+							"path": ["organizations", "{{organization_id}}", "stats"]
+						}
+					}
+				},
+				{
+					"name": "Get My Organization Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/organizations/my/info",
+							"host": ["{{base_url}}"],
+							"path": ["organizations", "my", "info"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "👥 Users",
+			"item": [
+				{
+					"name": "Create User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newuser@example.com\",\n  \"username\": \"newuser\",\n  \"password\": \"User@123\",\n  \"first_name\": \"New\",\n  \"last_name\": \"User\",\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users",
+							"host": ["{{base_url}}"],
+							"path": ["users"]
+						}
+					}
+				},
+				{
+					"name": "List Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users?page=1&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["users"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "size",
+									"value": "20"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "is_active",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}",
+									"disabled": true,
+									"description": "Super Admin only"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Updated\",\n  \"last_name\": \"User\",\n  \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Get My Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["users", "me"]
+						}
+					}
+				},
+				{
+					"name": "Update My Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Updated First Name\",\n  \"last_name\": \"Updated Last Name\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/me",
+							"host": ["{{base_url}}"],
+							"path": ["users", "me"]
+						}
+					}
+				},
+				{
+					"name": "Assign Roles to User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role_ids\": [\"{{role_id}}\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/roles",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}", "roles"]
+						}
+					}
+				},
+				{
+					"name": "Get User Roles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/roles",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}", "roles"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🛡️ Roles & Permissions",
+			"item": [
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Custom Role\",\n  \"description\": \"A custom role for testing\",\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/roles",
+							"host": ["{{base_url}}"],
+							"path": ["roles"]
+						}
+					}
+				},
+				{
+					"name": "List Roles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/roles?page=1&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["roles"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "size",
+									"value": "20"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "is_active",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}",
+									"disabled": true,
+									"description": "Super Admin only"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Role by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["roles", "{{role_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Role Name\",\n  \"description\": \"Updated role description\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["roles", "{{role_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/roles/{{role_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["roles", "{{role_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Assign Permissions to Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"permission_ids\": [\"{{permission_id}}\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/roles/{{role_id}}/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["roles", "{{role_id}}", "permissions"]
+						}
+					}
+				},
+				{
+					"name": "Get Role Permissions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/roles/{{role_id}}/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["roles", "{{role_id}}", "permissions"]
+						}
+					}
+				},
+				{
+					"name": "List All Permissions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/permissions?page=1&size=50",
+							"host": ["{{base_url}}"],
+							"path": ["permissions"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "size",
+									"value": "50"
+								},
+								{
+									"key": "resource",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "action",
+									"value": "",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "List Permissions Grouped",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/permissions/grouped",
+							"host": ["{{base_url}}"],
+							"path": ["permissions", "grouped"],
+							"query": [
+								{
+									"key": "search",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "resource",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "action",
+									"value": "",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Permission (Super Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"custom_permission\",\n  \"description\": \"Custom permission for testing\",\n  \"resource\": \"custom\",\n  \"action\": \"manage\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["permissions"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "📍 Locations",
+			"item": [
+				{
+					"name": "Create Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Office Location\",\n  \"code\": \"NEW-LOC\",\n  \"description\": \"A new office location\",\n  \"address\": \"123 Business St\",\n  \"city\": \"Business City\",\n  \"state\": \"BC\",\n  \"country\": \"USA\",\n  \"postal_code\": \"12345\",\n  \"organization_id\": \"{{organization_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/locations",
+							"host": ["{{base_url}}"],
+							"path": ["locations"]
+						}
+					}
+				},
+				{
+					"name": "List Locations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/locations?page=1&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["locations"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "size",
+									"value": "20"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "is_active",
+									"value": "true",
+									"disabled": true
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}",
+									"disabled": true,
+									"description": "Super Admin only"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Location by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["locations", "{{location_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Location Name\",\n  \"description\": \"Updated location description\",\n  \"address\": \"456 Updated St\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["locations", "{{location_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Location",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/locations/{{location_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["locations", "{{location_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Assign Locations to User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"location_ids\": [\"{{location_id}}\"],\n  \"primary_location_id\": \"{{location_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/locations/assign",
+							"host": ["{{base_url}}"],
+							"path": ["locations", "assign"]
+						}
+					}
+				},
+				{
+					"name": "Get User Locations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/locations/user/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["locations", "user", "{{user_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "📊 Audit Logs",
+			"item": [
+				{
+					"name": "List Audit Logs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/audit?page=1&size=20",
+							"host": ["{{base_url}}"],
+							"path": ["audit"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "size",
+									"value": "20"
+								},
+								{
+									"key": "user_id",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}",
+									"disabled": true,
+									"description": "Super Admin only"
+								},
+								{
+									"key": "action",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "resource",
+									"value": "",
+									"disabled": true
+								},
+								{
+									"key": "status",
+									"value": "",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Audit Log by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/audit/{{audit_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["audit", "{{audit_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Audit Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/audit/stats/summary?days=30",
+							"host": ["{{base_url}}"],
+							"path": ["audit", "stats", "summary"],
+							"query": [
+								{
+									"key": "days",
+									"value": "30"
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}",
+									"disabled": true,
+									"description": "Super Admin only"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get User Activity Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/audit/user/{{user_id}}/activity?days=30",
+							"host": ["{{base_url}}"],
+							"path": ["audit", "user", "{{user_id}}", "activity"],
+							"query": [
+								{
+									"key": "days",
+									"value": "30"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Organization Activity Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/audit/organization/{{organization_id}}/activity?days=30",
+							"host": ["{{base_url}}"],
+							"path": ["audit", "organization", "{{organization_id}}", "activity"],
+							"query": [
+								{
+									"key": "days",
+									"value": "30"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Security Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/audit/security/events?hours=24&severity=high",
+							"host": ["{{base_url}}"],
+							"path": ["audit", "security", "events"],
+							"query": [
+								{
+									"key": "hours",
+									"value": "24"
+								},
+								{
+									"key": "severity",
+									"value": "high"
+								},
+								{
+									"key": "organization_id",
+									"value": "{{organization_id}}",
+									"disabled": true,
+									"description": "Super Admin only"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "ℹ️ System Info",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						}
+					}
+				},
+				{
+					"name": "Root Endpoint",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": ["{{base_url}}"],
+							"path": [""]
+						}
+					}
+				},
+				{
+					"name": "API Documentation",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/docs",
+							"host": ["{{base_url}}"],
+							"path": ["docs"]
+						}
+					}
+				},
+				{
+					"name": "OpenAPI Schema",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/openapi.json",
+							"host": ["{{base_url}}"],
+							"path": ["openapi.json"]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "token_expiry",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "login_email",
+			"value": "superadmin@authx.com",
+			"type": "string",
+			"description": "Default: Super Admin"
+		},
+		{
+			"key": "login_password",
+			"value": "Admin@123",
+			"type": "string",
+			"description": "Default: Super Admin password"
+		},
+		{
+			"key": "organization_id",
+			"value": "",
+			"type": "string",
+			"description": "Set after getting organization list"
+		},
+		{
+			"key": "organization_slug",
+			"value": "techcorp",
+			"type": "string",
+			"description": "Default: techcorp"
+		},
+		{
+			"key": "user_id",
+			"value": "",
+			"type": "string",
+			"description": "Set after getting user list or creating user"
+		},
+		{
+			"key": "role_id",
+			"value": "",
+			"type": "string",
+			"description": "Set after getting role list"
+		},
+		{
+			"key": "location_id",
+			"value": "",
+			"type": "string",
+			"description": "Set after getting location list"
+		},
+		{
+			"key": "permission_id",
+			"value": "",
+			"type": "string",
+			"description": "Set after getting permission list"
+		},
+		{
+			"key": "audit_id",
+			"value": "",
+			"type": "string",
+			"description": "Set after getting audit log list"
+		}
+	]
+}

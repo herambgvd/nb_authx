@@ -5,149 +5,151 @@ build-backend = "hatchling.build"
 [project]
 name = "authx"
 version = "0.1.0"
-description = "AuthX - Comprehensive Authentication and Authorization Service"
+description = "AuthX - Multi-tenant Authentication and Authorization Service"
 authors = [
     {name = "AuthX Team", email = "team@authx.com"},
 ]
 dependencies = [
+    # Core FastAPI stack
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
+
+    # Database (async)
     "sqlalchemy>=2.0.23",
     "alembic>=1.12.1",
-    "psycopg2-binary>=2.9.9",
     "asyncpg>=0.29.0",
+
+    # Data validation
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
+    "email-validator>=2.1.0",
+
+    # Authentication & Security
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    "argon2-cffi>=23.1.0",
+    "cryptography>=41.0.7",
     "python-multipart>=0.0.6",
-    "email-validator>=2.1.0",
-    "python-dotenv>=1.0.0",
-    "redis>=5.0.0",
-    "celery>=5.3.0",
-    "pyotp>=2.9.0",
-    "qrcode[pil]>=7.4.2",
-    "httpx>=0.25.0",
-    "pillow>=10.0.0",
-    "bcrypt>=4.0.1",
     "itsdangerous>=2.1.0",
-    "jinja2>=3.1.6",
-    "psutil>=5.9.0",
-    "greenlet>=3.2.4",
-    # Google APIs for location services
+
+    # Redis & Caching
+    "redis>=5.0.0",
+    "aioredis>=2.0.1",
+
+    # Google Maps API
     "googlemaps>=4.10.0",
-    "google-api-python-client>=2.108.0",
-    "google-auth>=2.23.4",
-    "google-auth-oauthlib>=1.1.0",
-    "google-auth-httplib2>=0.1.1",
-    # Enhanced Email Services
+
+    # HTTP client
+    "httpx>=0.25.0",
+
+    # Email
     "aiosmtplib>=3.0.1",
-    "premailer>=3.10.0",
-    "markdown>=3.5.1",
-    "beautifulsoup4>=4.12.2",
-    # Monitoring and Metrics
+    "jinja2>=3.1.6",
+
+    # Monitoring & Metrics
     "prometheus-client>=0.19.0",
     "prometheus-fastapi-instrumentator>=6.1.0",
     "structlog>=23.2.0",
-    "loguru>=0.7.2",
-    "python-json-logger>=2.0.7",
-    # Circuit Breaker and Resilience
-    "circuitbreaker>=1.4.0",
-    "tenacity>=8.2.3",
-    "backoff>=2.2.1",
-    # Background Tasks and Scheduling
-    "apscheduler>=3.10.4",
-    "dramatiq[redis]>=1.14.2",
-    # Performance and Caching
-    "aioredis>=2.0.1",
-    "aiocache>=0.12.2",
-    # Security Enhancements
-    "cryptography>=41.0.7",
-    "argon2-cffi>=23.1.0",
-    "python-gnupg>=0.5.1",
-    # Data Validation and Serialization
-    "marshmallow>=3.20.1",
-    "cerberus>=1.3.5",
-    # Geographic and Location Services
-    "geopy>=2.4.0",
-    "geoip2>=4.7.0",
-    "geoalchemy2>=0.14.2",
-    # File Processing
-    "openpyxl>=3.1.2",
-    "xlsxwriter>=3.1.9",
-    "pypdf2>=3.0.1",
-    # API Documentation
-    "fastapi-users>=12.1.2",
-    "fastapi-pagination>=0.12.12",
-    # Testing and Development
-    "factory-boy>=3.3.0",
-    "faker>=20.1.0",
-    "pytest>=8.4.1",
+
+    # Configuration
+    "python-dotenv>=1.0.0",
+
+    # Background tasks
+    "celery>=5.3.0",
+
+    # Utils
+    "psutil>=5.9.0",
 ]
 requires-python = ">=3.11"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.3",
+    # Testing
+    "pytest>=8.4.1",
     "pytest-asyncio>=0.21.1",
     "pytest-cov>=4.1.0",
-    "black>=23.11.0",
-    "isort>=5.12.0",
-    "mypy>=1.7.1",
-    "flake8>=6.1.0",
-    "pre-commit>=3.6.0",
-    "httpx>=0.25.0",
     "pytest-mock>=3.12.0",
     "pytest-xdist>=3.4.0",
+    "httpx>=0.25.0",
+    "factory-boy>=3.3.0",
+    "faker>=20.1.0",
+
+    # Code quality
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.1",
+    "pre-commit>=3.6.0",
 ]
 
-monitoring = [
-    "grafana-api>=1.0.3",
-    "elasticsearch>=8.11.0",
-    "python-logstash>=0.4.8",
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=90",
 ]
-
-production = [
-    "gunicorn>=21.2.0",
-    "gevent>=23.9.1",
-    "newrelic>=9.2.0",
-    "sentry-sdk[fastapi]>=1.38.0",
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+    "slow: Slow running tests",
 ]
-
-[tool.hatch.build.targets.wheel]
-packages = ["app"]
 
 [tool.black]
-line-length = 100
+line-length = 88
 target-version = ["py311"]
 include = '\.pyi?$'
-extend-exclude = '''
+exclude = '''
 /(
-  # directories
-  \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
+    \.git
   | \.venv
-  | _build
-  | buck-out
+  | \.tox
   | build
   | dist
+  | migrations
 )/
 '''
 
 [tool.isort]
 profile = "black"
 multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-line_length = 100
+line_length = 88
+known_first_party = ["app", "authx_sdk"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+]
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "migrations",
+]
 
 [tool.mypy]
 python_version = "3.11"
+strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -163,25 +165,12 @@ strict_equality = true
 
 [[tool.mypy.overrides]]
 module = [
-    "redis.*",
+    "googlemaps.*",
     "celery.*",
-    "pyotp.*",
-    "qrcode.*",
-    "PIL.*",
+    "prometheus_client.*",
+    "redis.*",
 ]
 ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
-markers = [
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-]
 
 [tool.coverage.run]
 source = ["app"]
@@ -189,8 +178,6 @@ omit = [
     "*/tests/*",
     "*/migrations/*",
     "*/__pycache__/*",
-    "*/venv/*",
-    "*/env/*",
 ]
 
 [tool.coverage.report]

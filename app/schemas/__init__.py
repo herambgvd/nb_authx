@@ -1,183 +1,124 @@
 """
-Schemas package initialization.
-Imports all Pydantic schemas for the AuthX API.
+Schemas package - imports all Pydantic schemas and resolves forward references
 """
-
-# Base schemas
-from .base import BaseResponse, ErrorResponse, MessageResponse
-
-# Authentication schemas
-from .auth import (
-    Token,
-    TokenData,
-    TokenPayload,
-    LoginRequest,
-    RegisterRequest,
-    PasswordResetRequest,
-    PasswordResetConfirm,
-    RefreshTokenRequest,
-    LogoutRequest,
+from app.schemas.base import (
+    ActionStatus, TimestampSchema, UUIDSchema, MessageResponse,
+    PaginatedResponse, TokenPayload
+)
+from app.schemas.organization import (
+    OrganizationBase, OrganizationCreate, OrganizationUpdate, OrganizationResponse
+)
+from app.schemas.user import (
+    UserBase, UserCreate, UserUpdate, UserResponse, UserWithOrganization,
+    UserRoleAssign, UserWithRoles
+)
+from app.schemas.role import (
+    RoleBase, RoleCreate, RoleUpdate, RoleResponse,
+    PermissionBase, PermissionCreate, PermissionUpdate, PermissionResponse,
+    PermissionsByResourceResponse, GroupedPermissionsResponse,
+    RolePermissionAssign, RoleWithPermissions
+)
+from app.schemas.auth import (
+    LoginRequest, LoginResponse, RefreshTokenRequest, RefreshTokenResponse,
+    ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest
+)
+from app.schemas.audit import AuditLogResponse
+from app.schemas.location import (
+    LocationBase, LocationCreate, LocationUpdate, LocationResponse,
+    LocationAssignRequest, LocationAssignResponse, UserLocationResponse
 )
 
-# User schemas
-from .user import (
-    UserBase,
-    UserCreate,
-    UserUpdate,
-    UserResponse,
-    UserProfile,
-    UserListResponse,
-    UserSearchRequest,
-    UserBulkAction,
-)
+# Rebuild models to resolve forward references
+def rebuild_schemas():
+    """Rebuild all schemas to resolve forward references"""
+    import logging
+    logger = logging.getLogger(__name__)
 
-# Organization schemas
-from .organization import (
-    OrganizationBase,
-    OrganizationCreate,
-    OrganizationUpdate,
-    OrganizationResponse,
-    OrganizationListResponse,
-    OrganizationStats,
-    OrganizationSearchRequest,
-    OrganizationBulkAction,
-)
+    try:
+        # Import all the models first to ensure they're all loaded
+        from app.schemas.user import UserResponse
+        from app.schemas.organization import OrganizationResponse
+        from app.schemas.role import PermissionResponse, RoleResponse
+        from app.schemas.auth import LoginResponse
 
-# Role schemas
-from .role import (
-    RoleBase,
-    RoleCreate,
-    RoleUpdate,
-    RoleResponse,
-    RoleListResponse,
-    PermissionBase,
-    PermissionResponse,
-    RoleHierarchyItem,  # Added missing export
-)
+        # Rebuild models that have forward references
+        models_to_rebuild = [
+            LoginResponse,
+            UserWithOrganization,
+            UserWithRoles,
+            RoleWithPermissions
+        ]
 
-# Location schemas
-from .location import (
-    LocationBase,
-    LocationCreate,
-    LocationUpdate,
-    LocationResponse,
-    LocationListResponse,
-    LocationGroupBase,
-    LocationGroupCreate,
-    LocationGroupUpdate,
-    LocationGroupResponse,
-)
+        for model in models_to_rebuild:
+            try:
+                model.model_rebuild()
+                logger.debug(f"Successfully rebuilt {model.__name__}")
+            except Exception as e:
+                logger.warning(f"Failed to rebuild {model.__name__}: {e}")
 
-# Admin schemas
-from .admin import (
-    SystemConfigBase,
-    SystemConfigCreate,
-    SystemConfigUpdate,
-    SystemConfigResponse,
-    LicenseBase,
-    LicenseCreate,
-    LicenseUpdate,
-    LicenseResponse,
-    AdminBase,
-    AdminCreate,
-    AdminUpdate,
-    AdminResponse,
-)
+    except Exception as e:
+        logger.warning(f"Schema rebuild failed: {e}")
 
-# Audit schemas
-from .audit import (
-    AuditLogBase,
-    AuditLogResponse,
-    AuditLogListResponse,
-    SecurityEventBase,
-    SecurityEventResponse,
-    ComplianceReportBase,
-    ComplianceReportResponse,
-    ForensicSnapshotBase,
-    ForensicSnapshotResponse,
-)
+# Call rebuild on import
+rebuild_schemas()
 
-# Export all schemas
+# Export all schemas for easy import
 __all__ = [
-    # Base
-    "BaseResponse",
-    "ErrorResponse",
+    # Base schemas
+    "ActionStatus",
+    "TimestampSchema",
+    "UUIDSchema",
     "MessageResponse",
-
-    # Auth
-    "Token",
-    "TokenData",
+    "PaginatedResponse",
     "TokenPayload",
-    "LoginRequest",
-    "RegisterRequest",
-    "PasswordResetRequest",
-    "PasswordResetConfirm",
-    "RefreshTokenRequest",
-    "LogoutRequest",
 
-    # User
-    "UserBase",
-    "UserCreate",
-    "UserUpdate",
-    "UserResponse",
-    "UserProfile",
-    "UserListResponse",
-    "UserSearchRequest",
-    "UserBulkAction",
-
-    # Organization
+    # Organization schemas
     "OrganizationBase",
     "OrganizationCreate",
     "OrganizationUpdate",
     "OrganizationResponse",
-    "OrganizationListResponse",
-    "OrganizationStats",
-    "OrganizationSearchRequest",
-    "OrganizationBulkAction",
 
-    # Role
+    # User schemas
+    "UserBase",
+    "UserCreate",
+    "UserUpdate",
+    "UserResponse",
+    "UserWithOrganization",
+    "UserRoleAssign",
+    "UserWithRoles",
+
+    # Role schemas
     "RoleBase",
     "RoleCreate",
     "RoleUpdate",
     "RoleResponse",
-    "RoleListResponse",
     "PermissionBase",
+    "PermissionCreate",
+    "PermissionUpdate",
     "PermissionResponse",
-    "RoleHierarchyItem",  # Added missing export
+    "PermissionsByResourceResponse",
+    "GroupedPermissionsResponse",
+    "RolePermissionAssign",
+    "RoleWithPermissions",
 
-    # Location
+    # Auth schemas
+    "LoginRequest",
+    "LoginResponse",
+    "RefreshTokenRequest",
+    "RefreshTokenResponse",
+    "ForgotPasswordRequest",
+    "ResetPasswordRequest",
+    "ChangePasswordRequest",
+
+    # Audit schemas
+    "AuditLogResponse",
+
+    # Location schemas
     "LocationBase",
     "LocationCreate",
     "LocationUpdate",
     "LocationResponse",
-    "LocationListResponse",
-    "LocationGroupBase",
-    "LocationGroupCreate",
-    "LocationGroupUpdate",
-    "LocationGroupResponse",
-
-    # Admin
-    "SystemConfigBase",
-    "SystemConfigCreate",
-    "SystemConfigUpdate",
-    "SystemConfigResponse",
-    "LicenseBase",
-    "LicenseCreate",
-    "LicenseUpdate",
-    "LicenseResponse",
-    "AdminBase",
-    "AdminCreate",
-    "AdminUpdate",
-    "AdminResponse",
-
-    # Audit
-    "AuditLogBase",
-    "AuditLogResponse",
-    "AuditLogListResponse",
-    "SecurityEventBase",
-    "SecurityEventResponse",
-    "ComplianceReportBase",
-    "ComplianceReportResponse",
-    "ForensicSnapshotBase",
-    "ForensicSnapshotResponse",
+    "LocationAssignRequest",
+    "LocationAssignResponse",
+    "UserLocationResponse",
 ]

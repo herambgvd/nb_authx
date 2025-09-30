@@ -1,429 +1,590 @@
 """
-Role management service for the AuthX microservice.
-This module provides comprehensive role and permission management functionality with full async support.
+Role and Permission management service layer
 """
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
-from uuid import UUID
-import logging
-
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, or_, func
+from sqlalchemy import select, update, delete, and_, func
 from sqlalchemy.orm import selectinload
-
-from app.models.role import Role, Permission
-from app.models.user import User
-from app.models.organization import Organization
+from typing import Optional, List, Tuple
+from app.models import Role, Permission, RolePermission, UserRole, AuditLog
+from app.schemas import RoleCreate, RoleUpdate, PermissionCreate, PermissionUpdate, RolePermissionAssign
+from fastapi import HTTPException, status
+import logging
+import json
 
 logger = logging.getLogger(__name__)
 
-class RoleService:
-    """Comprehensive role management service with full async support."""
 
-    def __init__(self):
-        self.default_permissions = {
-            'users': ['read', 'write', 'delete'],
-            'organizations': ['read', 'write'],
-            'locations': ['read', 'write', 'delete'],
-            'roles': ['read', 'write', 'delete'],
-            'audit': ['read'],
-            'settings': ['read', 'write']
-        }
+class RoleService:
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
 
     async def create_role(
         self,
-        db: AsyncSession,
-        role_data: Dict[str, Any],
-        organization_id: UUID,
-        created_by: Optional[UUID] = None
+        role_data: RoleCreate,
+        organization_id: str,
+        created_by_user_id: Optional[str] = None
     ) -> Role:
-        """Create a new role with comprehensive validation."""
-        logger.info(f"Creating role: {role_data.get('name')} for organization: {organization_id}")
+        """Create a new role in an organization"""
 
-        # Check if role with name already exists in organization
-        existing_role = await self.get_role_by_name(db, role_data.get('name'), organization_id)
-        if existing_role:
-            logger.warning(f"Role creation failed - name already exists: {role_data.get('name')}")
+        # Check if role name already exists in organization
+        stmt = select(Role).where(
+            and_(
+                Role.name == role_data.name,
+                Role.organization_id == organization_id
+            )
+        )
+        existing_role = await self.db.execute(stmt)
+        if existing_role.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Role with this name already exists in the organization"
             )
 
-        # Generate slug from name
-        slug = role_data.get('slug') or self._generate_slug(role_data['name'])
-
         # Create role
         role = Role(
-            name=role_data['name'],
-            slug=slug,
-            description=role_data.get('description'),
+            name=role_data.name,
+            description=role_data.description,
             organization_id=organization_id,
-            is_default=role_data.get('is_default', False),
-            is_system=role_data.get('is_system', False),
-            permissions_config=role_data.get('permissions_config', {}),
-            priority=role_data.get('priority', 0)
+            is_active=True
         )
 
-        db.add(role)
-        await db.commit()
-        await db.refresh(role)
+        self.db.add(role)
+        await self.db.commit()
+        await self.db.refresh(role)
 
-        logger.info(f"Role created successfully: {role.id}")
+        # Log role creation
+        await self._log_audit(
+            user_id=created_by_user_id,
+            organization_id=organization_id,
+            action="role_created",
+            resource="role",
+            resource_id=role.id,
+            status="success",
+            details=json.dumps({
+                "name": role.name,
+                "created_by": created_by_user_id
+            })
+        )
+
+        logger.info(f"Role created: {role.name} in organization {organization_id}")
         return role
 
-    async def get_role_by_id(self, db: AsyncSession, role_id: UUID) -> Optional[Role]:
-        """Get role by ID with all relationships loaded."""
-        logger.debug(f"Fetching role by ID: {role_id}")
+    async def get_role_by_id(self, role_id: str, organization_id: Optional[str] = None) -> Optional[Role]:
+        """Get role by ID, optionally scoped to organization"""
+        stmt = select(Role).where(Role.id == role_id)
 
-        result = await db.execute(
-            select(Role)
-            .options(
-                selectinload(Role.organization),
-                selectinload(Role.permissions)
-            )
-            .where(Role.id == role_id)
-        )
-        role = result.scalar_one_or_none()
+        if organization_id:
+            stmt = stmt.where(Role.organization_id == organization_id)
 
-        if role:
-            logger.debug(f"Role found: {role.name}")
-        else:
-            logger.debug(f"Role not found with ID: {role_id}")
-
-        return role
-
-    async def get_role_by_name(self, db: AsyncSession, name: str, organization_id: UUID) -> Optional[Role]:
-        """Get role by name within organization."""
-        logger.debug(f"Fetching role by name: {name} in organization: {organization_id}")
-
-        result = await db.execute(
-            select(Role)
-            .options(selectinload(Role.permissions))
-            .where(
-                and_(
-                    Role.name == name,
-                    Role.organization_id == organization_id
-                )
-            )
-        )
+        result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_organization_roles(
+        self,
+        organization_id: str,
+        page: int = 1,
+        size: int = 20,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None
+    ) -> Tuple[List[Role], int]:
+        """List roles in an organization"""
+
+        # Build query
+        stmt = select(Role).where(Role.organization_id == organization_id)
+
+        # Apply filters
+        if is_active is not None:
+            stmt = stmt.where(Role.is_active == is_active)
+
+        if search:
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
+                Role.name.ilike(search_pattern) |
+                Role.description.ilike(search_pattern)
+            )
+
+        # Get total count
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar()
+
+        # Apply pagination
+        offset = (page - 1) * size
+        stmt = stmt.offset(offset).limit(size).order_by(Role.created_at.desc())
+
+        result = await self.db.execute(stmt)
+        roles = result.scalars().all()
+
+        return list(roles), total
 
     async def update_role(
         self,
-        db: AsyncSession,
-        role_id: UUID,
-        role_update: Dict[str, Any],
-        updated_by: Optional[UUID] = None
-    ) -> Optional[Role]:
-        """Update role with validation and audit logging."""
-        logger.info(f"Updating role: {role_id}")
+        role_id: str,
+        role_data: RoleUpdate,
+        organization_id: str,
+        updated_by_user_id: Optional[str] = None
+    ) -> Role:
+        """Update role"""
 
         # Get existing role
-        role = await self.get_role_by_id(db, role_id)
+        role = await self.get_role_by_id(role_id, organization_id)
         if not role:
-            logger.warning(f"Role not found for update: {role_id}")
-            return None
-
-        # Check if trying to update system role
-        if role.is_system and not role_update.get('allow_system_update', False):
-            logger.warning(f"Attempt to update system role: {role_id}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot update system roles"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found"
             )
 
-        # Update allowed fields
-        allowed_fields = {
-            'name', 'description', 'permissions_config', 'priority', 'is_active'
-        }
+        # Check if new name conflicts
+        if role_data.name and role_data.name != role.name:
+            stmt = select(Role).where(
+                and_(
+                    Role.name == role_data.name,
+                    Role.organization_id == organization_id,
+                    Role.id != role_id
+                )
+            )
+            existing_role = await self.db.execute(stmt)
+            if existing_role.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Role with this name already exists in the organization"
+                )
 
-        for field, value in role_update.items():
-            if field in allowed_fields and hasattr(role, field):
-                setattr(role, field, value)
-                logger.debug(f"Updated {field} for role {role_id}")
+        # Track changes
+        changes = {}
 
-        # Update slug if name changed
-        if 'name' in role_update:
-            role.slug = self._generate_slug(role_update['name'])
+        if role_data.name is not None and role_data.name != role.name:
+            changes["name"] = {"from": role.name, "to": role_data.name}
+            role.name = role_data.name
 
-        role.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(role)
+        if role_data.description is not None and role_data.description != role.description:
+            changes["description"] = {"from": role.description, "to": role_data.description}
+            role.description = role_data.description
 
-        logger.info(f"Role updated successfully: {role_id}")
+        if role_data.is_active is not None and role_data.is_active != role.is_active:
+            changes["is_active"] = {"from": role.is_active, "to": role_data.is_active}
+            role.is_active = role_data.is_active
+
+        if changes:
+            await self.db.commit()
+            await self.db.refresh(role)
+
+            # Log role update
+            await self._log_audit(
+                user_id=updated_by_user_id,
+                organization_id=organization_id,
+                action="role_updated",
+                resource="role",
+                resource_id=role.id,
+                status="success",
+                details=json.dumps({
+                    "changes": changes,
+                    "updated_by": updated_by_user_id
+                })
+            )
+
+            logger.info(f"Role updated: {role.name}")
+
         return role
 
-    async def delete_role(self, db: AsyncSession, role_id: UUID) -> bool:
-        """Delete role with validation."""
-        logger.info(f"Deleting role: {role_id}")
+    async def delete_role(
+        self,
+        role_id: str,
+        organization_id: str,
+        deleted_by_user_id: Optional[str] = None
+    ) -> bool:
+        """Delete role (check for users first)"""
 
-        role = await self.get_role_by_id(db, role_id)
+        role = await self.get_role_by_id(role_id, organization_id)
         if not role:
-            logger.warning(f"Role not found for deletion: {role_id}")
-            return False
-
-        # Check if it's a system role
-        if role.is_system:
-            logger.warning(f"Attempt to delete system role: {role_id}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete system roles"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found"
             )
 
-        # Check if role is assigned to users
-        result = await db.execute(
-            select(func.count(User.id)).where(User.id == role.user_id)
-        )
-        assigned_users = result.scalar()
+        # Check if role is assigned to any users
+        user_count_stmt = select(func.count()).where(UserRole.role_id == role_id)
+        user_count_result = await self.db.execute(user_count_stmt)
+        assigned_users = user_count_result.scalar()
 
         if assigned_users > 0:
-            logger.warning(f"Cannot delete role assigned to users: {assigned_users}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete role assigned to {assigned_users} users"
             )
 
-        # Delete role
-        await db.delete(role)
-        await db.commit()
+        # Delete role permissions first
+        delete_permissions_stmt = delete(RolePermission).where(RolePermission.role_id == role_id)
+        await self.db.execute(delete_permissions_stmt)
 
-        logger.info(f"Role deleted successfully: {role_id}")
+        # Delete role
+        delete_role_stmt = delete(Role).where(Role.id == role_id)
+        await self.db.execute(delete_role_stmt)
+        await self.db.commit()
+
+        # Log role deletion
+        await self._log_audit(
+            user_id=deleted_by_user_id,
+            organization_id=organization_id,
+            action="role_deleted",
+            resource="role",
+            resource_id=role_id,
+            status="success",
+            details=json.dumps({
+                "name": role.name,
+                "deleted_by": deleted_by_user_id
+            })
+        )
+
+        logger.info(f"Role deleted: {role.name}")
         return True
 
-    async def list_roles(
+    async def assign_permissions_to_role(
         self,
-        db: AsyncSession,
-        organization_id: UUID,
-        skip: int = 0,
-        limit: int = 100,
-        search: Optional[str] = None,
-        is_active: Optional[bool] = None
-    ) -> Tuple[List[Role], int]:
-        """List roles with pagination and filtering."""
-        logger.debug(f"Listing roles for organization: {organization_id}")
+        role_id: str,
+        permission_assignment: RolePermissionAssign,
+        organization_id: str,
+        assigned_by_user_id: Optional[str] = None
+    ) -> List[Permission]:
+        """Assign permissions to role"""
 
-        query = select(Role).options(
-            selectinload(Role.permissions)
-        ).where(Role.organization_id == organization_id)
-
-        # Apply filters
-        if search:
-            search_term = f"%{search}%"
-            query = query.where(
-                or_(
-                    Role.name.ilike(search_term),
-                    Role.description.ilike(search_term)
-                )
+        # Get role
+        role = await self.get_role_by_id(role_id, organization_id)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found"
             )
 
-        if is_active is not None:
-            query = query.where(Role.is_active == is_active)
+        # Get permissions
+        permissions_stmt = select(Permission).where(
+            Permission.id.in_(permission_assignment.permission_ids)
+        )
+        permissions_result = await self.db.execute(permissions_stmt)
+        permissions = permissions_result.scalars().all()
 
-        # Get total count
-        count_query = select(func.count(Role.id)).where(Role.organization_id == organization_id)
-        if search:
-            count_query = count_query.where(
-                or_(
-                    Role.name.ilike(search_term),
-                    Role.description.ilike(search_term)
-                )
-            )
-        if is_active is not None:
-            count_query = count_query.where(Role.is_active == is_active)
-
-        count_result = await db.execute(count_query)
-        total = count_result.scalar()
-
-        # Get paginated results
-        query = query.offset(skip).limit(limit).order_by(Role.priority.desc(), Role.created_at.desc())
-        result = await db.execute(query)
-        roles = result.scalars().all()
-
-        logger.debug(f"Found {len(roles)} roles out of {total} total")
-        return list(roles), total
-
-    async def assign_role_to_user(
-        self,
-        db: AsyncSession,
-        user_id: UUID,
-        role_id: UUID,
-        assigned_by: Optional[UUID] = None
-    ) -> bool:
-        """Assign role to user."""
-        logger.info(f"Assigning role {role_id} to user {user_id}")
-
-        # Get user and role
-        user = await db.get(User, user_id)
-        role = await self.get_role_by_id(db, role_id)
-
-        if not user or not role:
-            logger.warning(f"User or role not found for assignment")
-            return False
-
-        # Check if user belongs to same organization as role
-        if user.organization_id != role.organization_id:
-            logger.warning(f"User and role belong to different organizations")
+        if len(permissions) != len(permission_assignment.permission_ids):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User and role must belong to the same organization"
+                detail="One or more permissions not found"
             )
 
-        # Update user's role
-        # Note: This assumes one role per user. For multiple roles, you'd need a junction table
-        role.user_id = user_id
-        await db.commit()
+        # Remove existing permissions
+        delete_stmt = delete(RolePermission).where(RolePermission.role_id == role_id)
+        await self.db.execute(delete_stmt)
 
-        logger.info(f"Role assigned successfully")
-        return True
+        # Create new permission assignments
+        for permission in permissions:
+            role_permission = RolePermission(role_id=role_id, permission_id=permission.id)
+            self.db.add(role_permission)
 
-    async def remove_role_from_user(
+        await self.db.commit()
+
+        # Log permission assignment
+        await self._log_audit(
+            user_id=assigned_by_user_id,
+            organization_id=organization_id,
+            action="role_permissions_assigned",
+            resource="role",
+            resource_id=role_id,
+            status="success",
+            details=json.dumps({
+                "role_name": role.name,
+                "permission_ids": permission_assignment.permission_ids,
+                "permission_names": [p.name for p in permissions],
+                "assigned_by": assigned_by_user_id
+            })
+        )
+
+        logger.info(f"Permissions assigned to role {role.name}: {[p.name for p in permissions]}")
+        return list(permissions)
+
+    async def get_role_permissions(self, role_id: str) -> List[Permission]:
+        """Get all permissions for a role"""
+
+        stmt = (
+            select(Permission)
+            .join(RolePermission, Permission.id == RolePermission.permission_id)
+            .where(RolePermission.role_id == role_id)
+        )
+
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_roles_with_access_control(
         self,
-        db: AsyncSession,
-        user_id: UUID,
-        role_id: UUID
-    ) -> bool:
-        """Remove role from user."""
-        logger.info(f"Removing role {role_id} from user {user_id}")
+        page: int = 1,
+        size: int = 20,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        user_org_id: Optional[str] = None,
+        is_super_admin: bool = False
+    ) -> Tuple[List[Role], int]:
+        """List roles with access control"""
 
-        role = await self.get_role_by_id(db, role_id)
-        if not role or role.user_id != user_id:
-            logger.warning(f"Role not assigned to user")
+        # Super admin can see all roles
+        if is_super_admin:
+            stmt = select(Role).options(selectinload(Role.organization))
+
+            # Apply filters
+            if organization_id:
+                stmt = stmt.where(Role.organization_id == organization_id)
+            if is_active is not None:
+                stmt = stmt.where(Role.is_active == is_active)
+            if search:
+                search_pattern = f"%{search}%"
+                stmt = stmt.where(
+                    Role.name.ilike(search_pattern) |
+                    Role.description.ilike(search_pattern)
+                )
+
+            # Get total count
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            count_result = await self.db.execute(count_stmt)
+            total = count_result.scalar()
+
+            # Apply pagination
+            offset = (page - 1) * size
+            stmt = stmt.offset(offset).limit(size).order_by(Role.created_at.desc())
+
+            result = await self.db.execute(stmt)
+            roles = result.scalars().all()
+
+            return list(roles), total
+
+        # Organization users can only see roles in their organization
+        elif user_org_id:
+            return await self.list_organization_roles(
+                organization_id=user_org_id,
+                page=page,
+                size=size,
+                is_active=is_active,
+                search=search
+            )
+
+        # No access
+        else:
+            return [], 0
+
+    async def get_role_with_access_control(
+        self,
+        role_id: str,
+        user_org_id: Optional[str] = None,
+        is_super_admin: bool = False
+    ) -> Optional[Role]:
+        """Get role with access control"""
+
+        role = await self.get_role_by_id(role_id)
+        if not role:
+            return None
+
+        # Super admin can access any role
+        if is_super_admin:
+            return role
+
+        # Organization users can only access roles in their organization
+        if user_org_id and role.organization_id == user_org_id:
+            return role
+
+        # No access
+        return None
+
+    async def can_user_manage_role(
+        self,
+        role_id: str,
+        user_org_id: Optional[str] = None,
+        is_super_admin: bool = False
+    ) -> bool:
+        """Check if a user can manage a role"""
+
+        # Super admin can manage any role
+        if is_super_admin:
+            return True
+
+        # Get role
+        role = await self.get_role_by_id(role_id)
+        if not role:
             return False
 
-        role.user_id = None
-        await db.commit()
+        # Organization users can only manage roles in their organization
+        if user_org_id and role.organization_id == user_org_id:
+            return True
 
-        logger.info(f"Role removed successfully")
-        return True
-
-    async def get_user_roles(self, db: AsyncSession, user_id: UUID) -> List[Role]:
-        """Get all roles assigned to a user."""
-        logger.debug(f"Getting roles for user: {user_id}")
-
-        result = await db.execute(
-            select(Role)
-            .options(selectinload(Role.permissions))
-            .where(Role.user_id == user_id)
-        )
-        roles = result.scalars().all()
-
-        logger.debug(f"Found {len(roles)} roles for user")
-        return list(roles)
-
-    async def check_permission(
-        self,
-        db: AsyncSession,
-        user_id: UUID,
-        resource: str,
-        action: str
-    ) -> bool:
-        """Check if user has permission for specific resource and action."""
-        logger.debug(f"Checking permission for user {user_id}: {resource}.{action}")
-
-        # Get user roles
-        user_roles = await self.get_user_roles(db, user_id)
-
-        # Check permissions in each role
-        for role in user_roles:
-            if not role.is_active:
-                continue
-
-            permissions = role.permissions_config or {}
-            resource_permissions = permissions.get(resource, [])
-
-            if action in resource_permissions or 'all' in resource_permissions:
-                logger.debug(f"Permission granted via role: {role.name}")
-                return True
-
-        logger.debug(f"Permission denied")
         return False
 
-    async def create_default_roles(self, db: AsyncSession, organization_id: UUID):
-        """Create default roles for an organization."""
-        logger.info(f"Creating default roles for organization: {organization_id}")
+    async def _log_audit(
+        self,
+        action: str,
+        resource: str,
+        status: str,
+        user_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        details: Optional[str] = None
+    ):
+        """Create audit log entry"""
 
-        default_roles = [
-            {
-                'name': 'Super Admin',
-                'slug': 'super-admin',
-                'description': 'Full system access',
-                'is_system': True,
-                'priority': 1000,
-                'permissions_config': {
-                    'users': ['all'],
-                    'organizations': ['all'],
-                    'locations': ['all'],
-                    'roles': ['all'],
-                    'audit': ['all'],
-                    'settings': ['all']
-                }
-            },
-            {
-                'name': 'Admin',
-                'slug': 'admin',
-                'description': 'Administrative access',
-                'is_system': True,
-                'priority': 800,
-                'permissions_config': {
-                    'users': ['read', 'write'],
-                    'locations': ['read', 'write'],
-                    'roles': ['read'],
-                    'audit': ['read'],
-                    'settings': ['read', 'write']
-                }
-            },
-            {
-                'name': 'Manager',
-                'slug': 'manager',
-                'description': 'Management access',
-                'is_system': True,
-                'priority': 600,
-                'permissions_config': {
-                    'users': ['read'],
-                    'locations': ['read', 'write'],
-                    'audit': ['read']
-                }
-            },
-            {
-                'name': 'Employee',
-                'slug': 'employee',
-                'description': 'Basic employee access',
-                'is_system': True,
-                'is_default': True,
-                'priority': 400,
-                'permissions_config': {
-                    'users': ['read'],
-                    'locations': ['read']
-                }
-            },
-            {
-                'name': 'Auditor',
-                'slug': 'auditor',
-                'description': 'Audit and compliance access',
-                'is_system': True,
-                'priority': 500,
-                'permissions_config': {
-                    'audit': ['read'],
-                    'users': ['read'],
-                    'locations': ['read']
-                }
-            }
-        ]
+        audit_log = AuditLog(
+            user_id=user_id,
+            organization_id=organization_id,
+            action=action,
+            resource=resource,
+            resource_id=resource_id,
+            details=details,
+            status=status
+        )
 
-        for role_data in default_roles:
-            try:
-                await self.create_role(db, role_data, organization_id)
-            except HTTPException:
-                # Role might already exist, skip
-                logger.debug(f"Skipping existing role: {role_data['name']}")
-                continue
+        self.db.add(audit_log)
 
-        logger.info(f"Default roles created for organization: {organization_id}")
 
-    def _generate_slug(self, name: str) -> str:
-        """Generate URL-friendly slug from role name."""
-        return name.lower().replace(' ', '-').replace('_', '-')
+class PermissionService:
 
-# Create singleton instance
-role_service = RoleService()
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_permission(
+        self,
+        permission_data: PermissionCreate,
+        created_by_user_id: Optional[str] = None
+    ) -> Permission:
+        """Create a new permission (super admin only)"""
+
+        # Check if permission already exists
+        stmt = select(Permission).where(
+            and_(
+                Permission.resource == permission_data.resource,
+                Permission.action == permission_data.action
+            )
+        )
+        existing_permission = await self.db.execute(stmt)
+        if existing_permission.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Permission with this resource and action already exists"
+            )
+
+        # Create permission
+        permission = Permission(
+            name=permission_data.name,
+            description=permission_data.description,
+            resource=permission_data.resource,
+            action=permission_data.action
+        )
+
+        self.db.add(permission)
+        await self.db.commit()
+        await self.db.refresh(permission)
+
+        logger.info(f"Permission created: {permission.name}")
+        return permission
+
+    async def list_permissions(
+        self,
+        page: int = 1,
+        size: int = 50,
+        resource: Optional[str] = None,
+        action: Optional[str] = None
+    ) -> Tuple[List[Permission], int]:
+        """List all permissions"""
+
+        # Build query
+        stmt = select(Permission)
+
+        # Apply filters
+        if resource:
+            stmt = stmt.where(Permission.resource == resource)
+
+        if action:
+            stmt = stmt.where(Permission.action == action)
+
+        # Get total count
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar()
+
+        # Apply pagination
+        offset = (page - 1) * size
+        stmt = stmt.offset(offset).limit(size).order_by(Permission.resource, Permission.action)
+
+        result = await self.db.execute(stmt)
+        permissions = result.scalars().all()
+
+        return list(permissions), total
+
+    async def list_permissions_grouped_by_resource(
+        self,
+        search: Optional[str] = None,
+        resource: Optional[str] = None,
+        action: Optional[str] = None
+    ) -> Tuple[dict, int]:
+        """List all permissions grouped by resource for easier frontend consumption"""
+
+        # Build query
+        stmt = select(Permission)
+
+        # Apply filters
+        if resource:
+            stmt = stmt.where(Permission.resource == resource)
+
+        if action:
+            stmt = stmt.where(Permission.action == action)
+
+        if search:
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
+                Permission.name.ilike(search_pattern) |
+                Permission.description.ilike(search_pattern) |
+                Permission.resource.ilike(search_pattern) |
+                Permission.action.ilike(search_pattern)
+            )
+
+        # Order by resource and action for consistent grouping
+        stmt = stmt.order_by(Permission.resource, Permission.action)
+
+        result = await self.db.execute(stmt)
+        permissions = result.scalars().all()
+
+        # Group permissions by resource
+        permissions_by_resource = {}
+        for permission in permissions:
+            if permission.resource not in permissions_by_resource:
+                permissions_by_resource[permission.resource] = []
+            permissions_by_resource[permission.resource].append(permission)
+
+        return permissions_by_resource, len(permissions)
+
+    async def get_permission_by_id(self, permission_id: str) -> Optional[Permission]:
+        """Get permission by ID"""
+        stmt = select(Permission).where(Permission.id == permission_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_permission(
+        self,
+        permission_id: str,
+        permission_data: PermissionUpdate,
+        updated_by_user_id: Optional[str] = None
+    ) -> Permission:
+        """Update permission (super admin only)"""
+
+        permission = await self.get_permission_by_id(permission_id)
+        if not permission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Permission not found"
+            )
+
+        # Update fields
+        if permission_data.name is not None:
+            permission.name = permission_data.name
+
+        if permission_data.description is not None:
+            permission.description = permission_data.description
+
+        await self.db.commit()
+        await self.db.refresh(permission)
+
+        logger.info(f"Permission updated: {permission.name}")
+        return permission

@@ -1,51 +1,28 @@
 """
-Models package initialization.
-Imports all database models for the AuthX system with async support.
+Models package - imports all database models
 """
-from app.models.base import BaseModel, UUIDBaseModel, TenantBaseModel, Base
-from app.models.user import User
-from app.models.user_device import UserDevice
+from app.database import Base
+from app.models.base import TimestampMixin, UUIDMixin
 from app.models.organization import Organization
-from app.models.organization_settings import OrganizationSettings
-from app.models.role import Role, Permission
-from app.models.location import Location
-from app.models.location_group import LocationGroup, location_group_association
-from app.models.audit import AuditLog, SecurityEvent, ComplianceReport, ForensicSnapshot
-from app.models.admin import SystemConfig, License, Admin
+from app.models.user import User, RefreshToken, PasswordResetToken
+from app.models.role import Role, Permission, UserRole, RolePermission
+from app.models.location import Location, UserLocation
+from app.models.audit import AuditLog
 
-# Export all models
+# Export all models for easy import
 __all__ = [
-    # Base models
-    "BaseModel",
-    "UUIDBaseModel",
-    "TenantBaseModel",
     "Base",
-
-    # User models
-    "User",
-    "UserDevice",
-
-    # Organization models
+    "TimestampMixin",
+    "UUIDMixin",
     "Organization",
-    "OrganizationSettings",
-
-    # Role and permission models
+    "User",
+    "RefreshToken",
+    "PasswordResetToken",
     "Role",
     "Permission",
-
-    # Location models
+    "UserRole",
+    "RolePermission",
     "Location",
-    "LocationGroup",
-    "location_group_association",
-
-    # Audit and security models
+    "UserLocation",
     "AuditLog",
-    "SecurityEvent",
-    "ComplianceReport",
-    "ForensicSnapshot",
-
-    # Admin models
-    "SystemConfig",
-    "License",
-    "Admin",
 ]

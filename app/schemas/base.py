@@ -1,71 +1,47 @@
 """
-Base schemas for AuthX API.
-Common response models and validation schemas.
+Base schemas and common types
 """
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional, Any, Dict
-from uuid import UUID
+from enum import Enum
+from typing import Generic, TypeVar, List
 
-from pydantic import BaseModel, Field
+T = TypeVar('T')
 
-class BaseSchema(BaseModel):
-    """Base schema with common configuration."""
-    class Config:
-        from_attributes = True
-        validate_assignment = True
-        use_enum_values = True
 
-class UUIDSchema(BaseSchema):
-    """Base schema with UUID field."""
-    id: UUID
+class ActionStatus(str, Enum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    WARNING = "warning"
 
-class TimestampSchema(BaseSchema):
-    """Base schema with timestamp fields."""
+
+class TimestampSchema(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-class TenantBaseSchema(BaseSchema):
-    """Base schema for tenant-aware entities."""
-    organization_id: Optional[UUID] = None
 
-class BaseResponse(BaseModel):
-    """Base response schema with common fields."""
-    success: bool = True
-    message: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+class UUIDSchema(BaseModel):
+    id: str
 
-class ErrorResponse(BaseModel):
-    """Error response schema."""
-    success: bool = False
-    error: str
-    details: Optional[Dict[str, Any]] = None
-    status_code: int
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class MessageResponse(BaseModel):
-    """Simple message response schema."""
     message: str
-    success: bool = True
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    status: str = "success"
 
-class PaginationMeta(BaseModel):
-    """Pagination metadata schema."""
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    items: List[T]
     total: int
     page: int
-    per_page: int
-    total_pages: int
-    has_next: bool
-    has_prev: bool
+    size: int
+    pages: int
 
-class BaseListResponse(BaseModel):
-    """Base list response with pagination."""
-    meta: PaginationMeta
-    success: bool = True
 
-class HealthResponse(BaseModel):
-    """Health check response schema."""
-    status: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-    version: str
-    environment: str
-    services: Optional[Dict[str, Any]] = None
+class TokenPayload(BaseModel):
+    """JWT token payload"""
+    sub: str  # user ID
+    email: str
+    org_id: str | None = None
+    is_super_admin: bool = False
+    exp: int
+    iat: int

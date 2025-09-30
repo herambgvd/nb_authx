@@ -1,81 +1,82 @@
 """
-User model for AuthX authentication system.
-Defines the User database model with authentication and profile fields for async operations.
+User model and related authentication models
 """
-from sqlalchemy import Boolean, String, DateTime, Text, ForeignKey, Integer
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
-from typing import Optional
-import uuid
-
-from app.models.base import UUIDBaseModel
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index, UniqueConstraint
+from sqlalchemy.orm import relationship
+from app.database import Base
+from app.models.base import UUIDMixin, TimestampMixin
 
 
-class User(UUIDBaseModel):
-    """User model for authentication and user management with async support."""
-
+class User(Base, UUIDMixin, TimestampMixin):
+    """User model"""
     __tablename__ = "users"
 
-    # Authentication fields
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=False)
+    username = Column(String(100), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    first_name = Column(String(100))
+    last_name = Column(String(100))
 
-    # Profile fields
-    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    phone_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-
-    # Status fields
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_organization_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    is_super_admin = Column(Boolean, default=False, nullable=False)
+    is_org_admin = Column(Boolean, default=False, nullable=False)  # Organization Admin flag
 
     # Organization relationship
-    organization_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("organizations.id"),
-        nullable=True,
-        index=True
-    )
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
+    organization = relationship("Organization", back_populates="users")
 
-    # Timestamp fields
-    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    # Additional fields
-    bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="UTC")
-    locale: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, default="en")
-
-    # Security fields
-    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Authentication
+    last_login = Column(DateTime(timezone=True))
+    failed_login_attempts = Column(Integer, default=0)
+    locked_until = Column(DateTime(timezone=True))
 
     # Relationships
-    organization = relationship("Organization", back_populates="users")
-    admin = relationship("Admin", foreign_keys="Admin.user_id", back_populates="user", uselist=False)
-    roles = relationship("Role", secondary="user_roles", back_populates="users")
-    user_devices = relationship("UserDevice", back_populates="user", cascade="all, delete-orphan")
+    user_roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+    user_locations = relationship("UserLocation", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
-    security_events = relationship("SecurityEvent", back_populates="user", foreign_keys="SecurityEvent.user_id", cascade="all, delete-orphan")
-    location_accesses = relationship("UserLocationAccess", foreign_keys="UserLocationAccess.user_id", back_populates="user", cascade="all, delete-orphan")
 
-    @property
-    def full_name(self) -> str:
-        """Get the user's full name."""
-        return f"{self.first_name} {self.last_name}".strip()
+    __table_args__ = (
+        Index('ix_users_email', 'email'),
+        Index('ix_users_organization_id', 'organization_id'),
+        Index('ix_users_is_active', 'is_active'),
+        Index('ix_users_is_super_admin', 'is_super_admin'),
+        UniqueConstraint('username', 'organization_id', name='uq_username_organization'),
+    )
 
-    @property
-    def is_locked(self) -> bool:
-        """Check if the user account is locked."""
-        if self.locked_until is None:
-            return False
-        return datetime.utcnow() < self.locked_until
 
-    def __repr__(self) -> str:
-        return f"<User {self.username} ({self.email})>"
+class RefreshToken(Base, UUIDMixin, TimestampMixin):
+    """Refresh token model"""
+    __tablename__ = "refresh_tokens"
+
+    token = Column(String(255), unique=True, nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    is_revoked = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="refresh_tokens")
+
+    __table_args__ = (
+        Index('ix_refresh_tokens_token', 'token'),
+        Index('ix_refresh_tokens_user_id', 'user_id'),
+        Index('ix_refresh_tokens_expires_at', 'expires_at'),
+    )
+
+
+class PasswordResetToken(Base, UUIDMixin, TimestampMixin):
+    """Password reset token model"""
+    __tablename__ = "password_reset_tokens"
+
+    token = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index('ix_password_reset_tokens_token', 'token'),
+        Index('ix_password_reset_tokens_email', 'email'),
+        Index('ix_password_reset_tokens_expires_at', 'expires_at'),
+    )

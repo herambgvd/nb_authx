@@ -1,356 +1,417 @@
 """
-Organization service for AuthX.
-Provides comprehensive organization management operations with async support.
+Organization service layer
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, update, delete, and_, func
 from sqlalchemy.orm import selectinload
+from typing import Optional, List, Tuple
+from app.models import Organization, User, Role, Permission, RolePermission
+from app.schemas import OrganizationCreate, OrganizationUpdate, PaginatedResponse
 from fastapi import HTTPException, status
-from typing import Optional, List, Dict, Any
-from uuid import UUID
 import logging
+import json
 import re
-
-from app.models.organization import Organization
-from app.models.user import User
-from app.models.location import Location
-from app.models.role import Role
-from app.schemas.organization import (
-    OrganizationCreate,
-    OrganizationUpdate,
-    OrganizationSearchRequest,
-    OrganizationStats
-)
 
 logger = logging.getLogger(__name__)
 
 
 class OrganizationService:
-    """Service class for organization management operations."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
 
     async def create_organization(
         self,
-        db: AsyncSession,
         org_data: OrganizationCreate,
-        creator_id: UUID
+        created_by_user_id: Optional[str] = None
     ) -> Organization:
-        """Create a new organization with validation."""
+        """Create a new organization"""
 
-        # Generate slug from name
-        slug = self._generate_slug(org_data.name)
-
-        # Check if organization with same name or slug exists
-        existing_org = await self._get_by_name_or_slug(db, org_data.name, slug)
-        if existing_org:
+        # Validate slug format (alphanumeric and hyphens only)
+        if not re.match(r'^[a-z0-9-]+$', org_data.slug):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Organization with this name already exists"
+                detail="Slug must contain only lowercase letters, numbers, and hyphens"
             )
 
-        # Check domain uniqueness if provided
-        if org_data.domain:
-            existing_domain = await self._get_by_domain(db, org_data.domain)
-            if existing_domain:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Organization with this domain already exists"
-                )
+        # Check if organization with slug already exists
+        stmt = select(Organization).where(Organization.slug == org_data.slug)
+        existing_org = await self.db.execute(stmt)
+        if existing_org.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization with this slug already exists"
+            )
 
         # Create organization
         organization = Organization(
             name=org_data.name,
-            slug=slug,
+            slug=org_data.slug,
             description=org_data.description,
-            domain=org_data.domain,
-            email=org_data.email,
-            phone=org_data.phone,
-            website=org_data.website,
-            address_line1=org_data.address_line1,
-            address_line2=org_data.address_line2,
-            city=org_data.city,
-            state=org_data.state,
-            postal_code=org_data.postal_code,
-            country=org_data.country,
             max_users=org_data.max_users,
-            max_locations=org_data.max_locations,
-            logo_url=org_data.logo_url,
-            subscription_tier=org_data.subscription_tier,
-            billing_email=org_data.billing_email
+            is_active=True
         )
 
-        db.add(organization)
-        await db.commit()
-        await db.refresh(organization)
+        self.db.add(organization)
+        await self.db.flush()  # Flush to get the ID
 
-        logger.info(f"Organization created: {organization.id} - {organization.name}")
+        # Create default roles for the organization
+        await self._create_default_roles(organization.id)
+
+        await self.db.commit()
+        await self.db.refresh(organization)
+
+        # Log organization creation
+        await self._log_audit(
+            user_id=created_by_user_id,
+            organization_id=organization.id,
+            action="organization_created",
+            resource="organization",
+            resource_id=organization.id,
+            status="success",
+            details=json.dumps({
+                "name": organization.name,
+                "slug": organization.slug,
+                "created_by": created_by_user_id
+            })
+        )
+
+        logger.info(f"Organization created: {organization.name} ({organization.slug})")
         return organization
 
-    async def get_organization(self, db: AsyncSession, org_id: UUID) -> Optional[Organization]:
-        """Get organization by ID with related data."""
-        result = await db.execute(
-            select(Organization)
-            .options(selectinload(Organization.users))
-            .where(Organization.id == org_id)
-        )
+    async def get_organization_by_id(self, org_id: str) -> Optional[Organization]:
+        """Get organization by ID"""
+        stmt = select(Organization).where(Organization.id == org_id)
+        result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_organization_by_slug(self, db: AsyncSession, slug: str) -> Optional[Organization]:
-        """Get organization by slug."""
-        result = await db.execute(
-            select(Organization).where(Organization.slug == slug)
-        )
+    async def get_organization_by_slug(self, slug: str) -> Optional[Organization]:
+        """Get organization by slug"""
+        stmt = select(Organization).where(Organization.slug == slug)
+        result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_organizations(
+    async def list_organizations(
         self,
-        db: AsyncSession,
-        skip: int = 0,
-        limit: int = 100,
-        search: Optional[OrganizationSearchRequest] = None
-    ) -> tuple[List[Organization], int]:
-        """Get paginated list of organizations with optional filtering."""
+        page: int = 1,
+        size: int = 20,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        include_locations: bool = True
+    ) -> Tuple[List[Organization], int]:
+        """List organizations with pagination and filtering (Super Admin only - for organization onboarding)"""
 
-        query = select(Organization).options(selectinload(Organization.users))
-        count_query = select(func.count(Organization.id))
+        # Build query with locations
+        stmt = select(Organization)
+        if include_locations:
+            stmt = stmt.options(selectinload(Organization.locations))
 
-        # Apply filters if search criteria provided
+        # Apply filters
+        if is_active is not None:
+            stmt = stmt.where(Organization.is_active == is_active)
+
         if search:
-            conditions = []
-
-            if search.query:
-                search_term = f"%{search.query}%"
-                conditions.append(
-                    or_(
-                        Organization.name.ilike(search_term),
-                        Organization.description.ilike(search_term),
-                        Organization.domain.ilike(search_term)
-                    )
-                )
-
-            if search.is_active is not None:
-                conditions.append(Organization.is_active == search.is_active)
-
-            if search.subscription_tier:
-                conditions.append(Organization.subscription_tier == search.subscription_tier)
-
-            if search.domain:
-                conditions.append(Organization.domain.ilike(f"%{search.domain}%"))
-
-            if conditions:
-                filter_clause = and_(*conditions)
-                query = query.where(filter_clause)
-                count_query = count_query.where(filter_clause)
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
+                Organization.name.ilike(search_pattern) |
+                Organization.slug.ilike(search_pattern)
+            )
 
         # Get total count
-        total_result = await db.execute(count_query)
-        total = total_result.scalar()
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar()
 
-        # Get paginated results
-        query = query.offset(skip).limit(limit).order_by(Organization.created_at.desc())
-        result = await db.execute(query)
+        # Apply pagination
+        offset = (page - 1) * size
+        stmt = stmt.offset(offset).limit(size).order_by(Organization.created_at.desc())
+
+        result = await self.db.execute(stmt)
         organizations = result.scalars().all()
 
         return list(organizations), total
 
+    async def get_organization_for_user(
+        self,
+        org_id: str,
+        user_org_id: Optional[str] = None,
+        is_super_admin: bool = False,
+        is_org_admin: bool = False
+    ) -> Optional[Organization]:
+        """Get organization with access control"""
+        
+        # Super admins can access any organization (for organization onboarding management)
+        if is_super_admin:
+            stmt = select(Organization).options(selectinload(Organization.locations)).where(Organization.id == org_id)
+            result = await self.db.execute(stmt)
+            return result.scalar_one_or_none()
+        
+        # Organization admins and users can only access their own organization
+        if (is_org_admin or user_org_id) and org_id == user_org_id:
+            stmt = select(Organization).options(selectinload(Organization.locations)).where(Organization.id == org_id)
+            result = await self.db.execute(stmt)
+            return result.scalar_one_or_none()
+        
+        # No access
+        return None
+
+    async def list_user_organizations(
+        self,
+        user_org_id: str,
+        page: int = 1,
+        size: int = 20
+    ) -> Tuple[List[Organization], int]:
+        """List organizations for organization users (only their own org)"""
+        
+        stmt = select(Organization).options(selectinload(Organization.locations)).where(
+            and_(Organization.id == user_org_id, Organization.is_active == True)
+        )
+        
+        result = await self.db.execute(stmt)
+        organization = result.scalar_one_or_none()
+        
+        if organization:
+            return [organization], 1
+        else:
+            return [], 0
+
     async def update_organization(
         self,
-        db: AsyncSession,
-        org_id: UUID,
-        org_data: OrganizationUpdate
+        org_id: str,
+        org_data: OrganizationUpdate,
+        updated_by_user_id: Optional[str] = None
     ) -> Organization:
-        """Update organization with validation."""
+        """Update organization"""
 
-        organization = await self.get_organization(db, org_id)
+        # Get existing organization
+        organization = await self.get_organization_by_id(org_id)
         if not organization:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Organization not found"
             )
 
-        # Check name uniqueness if name is being updated
-        if org_data.name and org_data.name != organization.name:
-            new_slug = self._generate_slug(org_data.name)
-            existing_org = await self._get_by_name_or_slug(db, org_data.name, new_slug)
-            if existing_org and existing_org.id != org_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Organization with this name already exists"
-                )
-            organization.slug = new_slug
-
-        # Check domain uniqueness if domain is being updated
-        if org_data.domain and org_data.domain != organization.domain:
-            existing_domain = await self._get_by_domain(db, org_data.domain)
-            if existing_domain and existing_domain.id != org_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Organization with this domain already exists"
-                )
+        # Track changes for audit log
+        changes = {}
 
         # Update fields
-        update_data = org_data.dict(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(organization, field, value)
+        if org_data.name is not None and org_data.name != organization.name:
+            changes["name"] = {"from": organization.name, "to": org_data.name}
+            organization.name = org_data.name
 
-        await db.commit()
-        await db.refresh(organization)
+        if org_data.description is not None and org_data.description != organization.description:
+            changes["description"] = {"from": organization.description, "to": org_data.description}
+            organization.description = org_data.description
 
-        logger.info(f"Organization updated: {organization.id} - {organization.name}")
+        if org_data.max_users is not None and org_data.max_users != organization.max_users:
+            changes["max_users"] = {"from": organization.max_users, "to": org_data.max_users}
+            organization.max_users = org_data.max_users
+
+        if org_data.is_active is not None and org_data.is_active != organization.is_active:
+            changes["is_active"] = {"from": organization.is_active, "to": org_data.is_active}
+            organization.is_active = org_data.is_active
+
+        if changes:
+            await self.db.commit()
+            await self.db.refresh(organization)
+
+            # Log organization update
+            await self._log_audit(
+                user_id=updated_by_user_id,
+                organization_id=organization.id,
+                action="organization_updated",
+                resource="organization",
+                resource_id=organization.id,
+                status="success",
+                details=json.dumps({
+                    "changes": changes,
+                    "updated_by": updated_by_user_id
+                })
+            )
+
+            logger.info(f"Organization updated: {organization.name}")
+
         return organization
 
-    async def delete_organization(self, db: AsyncSession, org_id: UUID) -> bool:
-        """Soft delete organization and handle related data."""
+    async def delete_organization(
+        self,
+        org_id: str,
+        deleted_by_user_id: Optional[str] = None
+    ) -> bool:
+        """Delete organization (soft delete by marking as inactive)"""
 
-        organization = await self.get_organization(db, org_id)
+        organization = await self.get_organization_by_id(org_id)
         if not organization:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Organization not found"
             )
 
-        # Check if organization has users
-        if organization.users:
+        # Check if organization has active users
+        user_count_stmt = select(func.count()).where(
+            and_(User.organization_id == org_id, User.is_active == True)
+        )
+        user_count_result = await self.db.execute(user_count_stmt)
+        active_users = user_count_result.scalar()
+
+        if active_users > 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete organization with active users. Transfer or deactivate users first."
+                detail=f"Cannot delete organization with {active_users} active users"
             )
 
-        # Soft delete by deactivating
+        # Soft delete - mark as inactive
         organization.is_active = False
-        await db.commit()
+        await self.db.commit()
 
-        logger.info(f"Organization deactivated: {organization.id} - {organization.name}")
+        # Log organization deletion
+        await self._log_audit(
+            user_id=deleted_by_user_id,
+            organization_id=organization.id,
+            action="organization_deleted",
+            resource="organization",
+            resource_id=organization.id,
+            status="success",
+            details=json.dumps({
+                "name": organization.name,
+                "slug": organization.slug,
+                "deleted_by": deleted_by_user_id
+            })
+        )
+
+        logger.info(f"Organization deleted: {organization.name}")
         return True
 
-    async def get_organization_stats(self, db: AsyncSession, org_id: UUID) -> OrganizationStats:
-        """Get comprehensive statistics for an organization."""
+    async def get_organization_stats(self, org_id: str) -> dict:
+        """Get organization statistics"""
 
-        organization = await self.get_organization(db, org_id)
+        organization = await self.get_organization_by_id(org_id)
         if not organization:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Organization not found"
             )
 
-        # Get user statistics
-        user_stats = await db.execute(
-            select(
-                func.count(User.id).label('total_users'),
-                func.count(User.id).filter(User.is_active == True).label('active_users')
-            ).where(User.organization_id == org_id)
+        # Count active users
+        active_users_stmt = select(func.count()).where(
+            and_(User.organization_id == org_id, User.is_active == True)
         )
-        user_counts = user_stats.one()
+        active_users_result = await self.db.execute(active_users_stmt)
+        active_users = active_users_result.scalar()
 
-        # Get location statistics
-        location_stats = await db.execute(
-            select(
-                func.count(Location.id).label('total_locations'),
-                func.count(Location.id).filter(Location.is_active == True).label('active_locations')
-            ).where(Location.organization_id == org_id)
+        # Count total users
+        total_users_stmt = select(func.count()).where(User.organization_id == org_id)
+        total_users_result = await self.db.execute(total_users_stmt)
+        total_users = total_users_result.scalar()
+
+        # Count roles
+        roles_stmt = select(func.count()).where(
+            and_(Role.organization_id == org_id, Role.is_active == True)
         )
-        location_counts = location_stats.one()
-
-        # Get role count
-        role_stats = await db.execute(
-            select(func.count(Role.id)).where(Role.organization_id == org_id)
-        )
-        role_count = role_stats.scalar()
-
-        return OrganizationStats(
-            total_users=user_counts.total_users,
-            active_users=user_counts.active_users,
-            total_locations=location_counts.total_locations,
-            active_locations=location_counts.active_locations,
-            total_roles=role_count,
-            subscription_tier=organization.subscription_tier,
-            is_at_user_limit=organization.is_at_user_limit,
-            is_at_location_limit=(
-                organization.max_locations is not None and
-                location_counts.total_locations >= organization.max_locations
-            )
-        )
-
-    async def bulk_action(
-        self,
-        db: AsyncSession,
-        organization_ids: List[UUID],
-        action: str
-    ) -> Dict[str, Any]:
-        """Perform bulk actions on organizations."""
-
-        # Get organizations
-        result = await db.execute(
-            select(Organization).where(Organization.id.in_(organization_ids))
-        )
-        organizations = result.scalars().all()
-
-        if not organizations:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No organizations found with provided IDs"
-            )
-
-        success_count = 0
-        errors = []
-
-        for org in organizations:
-            try:
-                if action == "activate":
-                    org.is_active = True
-                    success_count += 1
-                elif action == "deactivate":
-                    org.is_active = False
-                    success_count += 1
-                elif action == "delete":
-                    # Check if has users before deletion
-                    if org.users:
-                        errors.append(f"Organization {org.name} has active users")
-                    else:
-                        org.is_active = False
-                        success_count += 1
-            except Exception as e:
-                errors.append(f"Error processing organization {org.name}: {str(e)}")
-
-        await db.commit()
+        roles_result = await self.db.execute(roles_stmt)
+        total_roles = roles_result.scalar()
 
         return {
-            "success_count": success_count,
-            "total_count": len(organization_ids),
-            "errors": errors
+            "organization_id": org_id,
+            "name": organization.name,
+            "slug": organization.slug,
+            "is_active": organization.is_active,
+            "max_users": organization.max_users,
+            "active_users": active_users,
+            "total_users": total_users,
+            "total_roles": total_roles,
+            "user_capacity_percentage": round((active_users / organization.max_users) * 100, 2) if organization.max_users > 0 else 0
         }
 
-    # Helper methods
+    async def _create_default_roles(self, org_id: str):
+        """Create default roles for new organization"""
 
-    def _generate_slug(self, name: str) -> str:
-        """Generate URL-friendly slug from organization name."""
-        slug = re.sub(r'[^\w\s-]', '', name.lower())
-        slug = re.sub(r'[-\s]+', '-', slug)
-        return slug.strip('-')
+        # Get all available permissions
+        permissions_stmt = select(Permission)
+        permissions_result = await self.db.execute(permissions_stmt)
+        all_permissions = permissions_result.scalars().all()
 
-    async def _get_by_name_or_slug(
-        self,
-        db: AsyncSession,
-        name: str,
-        slug: str
-    ) -> Optional[Organization]:
-        """Check if organization exists by name or slug."""
-        result = await db.execute(
-            select(Organization).where(
-                or_(
-                    Organization.name.ilike(name),
-                    Organization.slug == slug
-                )
+        # Create Admin role with all permissions
+        admin_role = Role(
+            name="Admin",
+            description="Organization administrator with full access",
+            organization_id=org_id,
+            is_active=True
+        )
+        self.db.add(admin_role)
+        await self.db.flush()
+
+        # Assign all permissions to admin role
+        for permission in all_permissions:
+            role_permission = RolePermission(
+                role_id=admin_role.id,
+                permission_id=permission.id
             )
+            self.db.add(role_permission)
+
+        # Create Member role with basic permissions
+        member_role = Role(
+            name="Member",
+            description="Basic organization member",
+            organization_id=org_id,
+            is_active=True
         )
-        return result.scalar_one_or_none()
+        self.db.add(member_role)
+        await self.db.flush()
 
-    async def _get_by_domain(self, db: AsyncSession, domain: str) -> Optional[Organization]:
-        """Check if organization exists by domain."""
-        result = await db.execute(
-            select(Organization).where(Organization.domain.ilike(domain))
+        # Assign basic permissions to member role (read operations)
+        basic_permissions = [p for p in all_permissions if p.action in ['read']]
+        for permission in basic_permissions:
+            role_permission = RolePermission(
+                role_id=member_role.id,
+                permission_id=permission.id
+            )
+            self.db.add(role_permission)
+
+        # Create Viewer role with minimal permissions
+        viewer_role = Role(
+            name="Viewer",
+            description="Read-only access",
+            organization_id=org_id,
+            is_active=True
         )
-        return result.scalar_one_or_none()
+        self.db.add(viewer_role)
+        await self.db.flush()
 
+        # Assign minimal permissions to viewer role
+        viewer_permissions = [p for p in all_permissions if p.action == 'read' and p.resource in ['user', 'role']]
+        for permission in viewer_permissions:
+            role_permission = RolePermission(
+                role_id=viewer_role.id,
+                permission_id=permission.id
+            )
+            self.db.add(role_permission)
 
-# Create service instance
-organization_service = OrganizationService()
+    async def _log_audit(
+        self,
+        action: str,
+        resource: str,
+        status: str,
+        user_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        details: Optional[str] = None
+    ):
+        """Create audit log entry"""
+        from app.models import AuditLog
+
+        audit_log = AuditLog(
+            user_id=user_id,
+            organization_id=organization_id,
+            action=action,
+            resource=resource,
+            resource_id=resource_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            details=details,
+            status=status
+        )
+
+        self.db.add(audit_log)

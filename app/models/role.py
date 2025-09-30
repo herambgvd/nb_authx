@@ -1,119 +1,84 @@
 """
-Role model for AuthX role-based access control system.
-Defines roles and permissions for users within organizations with async support.
+Role and Permission models
 """
-from sqlalchemy import String, Boolean, Text, ForeignKey, Integer, Table, Column
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from typing import Optional, List, Dict, Any
-import uuid
-
-from app.models.base import TenantBaseModel, UUIDBaseModel
-
-# Association table for many-to-many relationship between users and roles
-user_roles = Table(
-    'user_roles',
-    UUIDBaseModel.metadata,
-    Column('user_id', UUID(as_uuid=True), ForeignKey('users.id'), primary_key=True),
-    Column('role_id', UUID(as_uuid=True), ForeignKey('roles.id'), primary_key=True)
-)
-
-# Association table for many-to-many relationship between roles and permissions
-role_permissions = Table(
-    'role_permissions',
-    UUIDBaseModel.metadata,
-    Column('role_id', UUID(as_uuid=True), ForeignKey('roles.id'), primary_key=True),
-    Column('permission_id', UUID(as_uuid=True), ForeignKey('permissions.id'), primary_key=True)
-)
+from sqlalchemy import Column, String, Boolean, Text, ForeignKey, Index, UniqueConstraint
+from sqlalchemy.orm import relationship
+from app.database import Base
+from app.models.base import UUIDMixin, TimestampMixin
 
 
-class Role(TenantBaseModel):
-    """Role model for role-based access control with async support."""
-
+class Role(Base, UUIDMixin, TimestampMixin):
+    """Role model - organization scoped"""
     __tablename__ = "roles"
 
-    # Basic role fields
-    name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True, nullable=False)
 
-    # Role slug for URL-friendly identification
-    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-
-    # Role configuration
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    # Permissions stored as structured JSON
-    permissions_config: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSONB, nullable=True, default=lambda: {}
-    )
-
-    # Priority for role hierarchy (higher number = higher priority)
-    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-
-    # Relationships
-    users = relationship("User", secondary=user_roles, back_populates="roles")
-    permissions = relationship("Permission", secondary=role_permissions, back_populates="roles")
+    # Organization relationship
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     organization = relationship("Organization", back_populates="roles")
 
-    def __repr__(self) -> str:
-        return f"<Role {self.name} in org {self.organization_id}>"
+    # Relationships
+    user_roles = relationship("UserRole", back_populates="role", cascade="all, delete-orphan")
+    role_permissions = relationship("RolePermission", back_populates="role", cascade="all, delete-orphan")
 
-    @property
-    def display_name(self) -> str:
-        """Get display name for the role."""
-        return self.name.replace('_', ' ').title()
-
-    def has_permission(self, resource: str, action: str) -> bool:
-        """Check if role has specific permission."""
-        if not self.permissions_config:
-            return False
-
-        resource_perms = self.permissions_config.get(resource, {})
-        if isinstance(resource_perms, dict):
-            return resource_perms.get(action, False)
-        elif isinstance(resource_perms, list):
-            return action in resource_perms
-        elif resource_perms == "*":
-            return True
-
-        return False
-
-    @property
-    def user_count(self) -> int:
-        """Get the number of users assigned to this role."""
-        return len(self.users) if self.users else 0
+    __table_args__ = (
+        Index('ix_roles_organization_id', 'organization_id'),
+        Index('ix_roles_is_active', 'is_active'),
+        UniqueConstraint('name', 'organization_id', name='uq_role_name_organization'),
+    )
 
 
-class Permission(UUIDBaseModel):
-    """Permission model for fine-grained access control."""
-
+class Permission(Base, UUIDMixin, TimestampMixin):
+    """Permission model"""
     __tablename__ = "permissions"
 
-    # Basic permission fields
-    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    # Permission categorization
-    resource: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-
-    # System permission flag
-    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text)
+    resource = Column(String(100), nullable=False)  # e.g., 'user', 'role', 'organization'
+    action = Column(String(50), nullable=False)     # e.g., 'create', 'read', 'update', 'delete'
 
     # Relationships
-    roles = relationship("Role", secondary=role_permissions, back_populates="permissions")
+    role_permissions = relationship("RolePermission", back_populates="permission", cascade="all, delete-orphan")
 
-    def __repr__(self) -> str:
-        return f"<Permission {self.name} ({self.resource}:{self.action})>"
+    __table_args__ = (
+        Index('ix_permissions_resource_action', 'resource', 'action'),
+        UniqueConstraint('resource', 'action', name='uq_permission_resource_action'),
+    )
 
-    @property
-    def display_name(self) -> str:
-        """Get display name for the permission."""
-        return self.name.replace('_', ' ').title()
 
-    @property
-    def full_name(self) -> str:
-        """Get full permission name in resource:action format."""
-        return f"{self.resource}:{self.action}"
+class UserRole(Base, UUIDMixin, TimestampMixin):
+    """User-Role association - organization scoped"""
+    __tablename__ = "user_roles"
+
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    role_id = Column(String(36), ForeignKey("roles.id"), nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="user_roles")
+    role = relationship("Role", back_populates="user_roles")
+
+    __table_args__ = (
+        Index('ix_user_roles_user_id', 'user_id'),
+        Index('ix_user_roles_role_id', 'role_id'),
+        UniqueConstraint('user_id', 'role_id', name='uq_user_role'),
+    )
+
+
+class RolePermission(Base, UUIDMixin, TimestampMixin):
+    """Role-Permission association"""
+    __tablename__ = "role_permissions"
+
+    role_id = Column(String(36), ForeignKey("roles.id"), nullable=False)
+    permission_id = Column(String(36), ForeignKey("permissions.id"), nullable=False)
+
+    # Relationships
+    role = relationship("Role", back_populates="role_permissions")
+    permission = relationship("Permission", back_populates="role_permissions")
+
+    __table_args__ = (
+        Index('ix_role_permissions_role_id', 'role_id'),
+        Index('ix_role_permissions_permission_id', 'permission_id'),
+        UniqueConstraint('role_id', 'permission_id', name='uq_role_permission'),
+    )

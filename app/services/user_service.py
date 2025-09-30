@@ -1,419 +1,629 @@
 """
-User management service for the AuthX microservice.
-This module provides comprehensive user management functionality with full async support.
+User management service layer
 """
-import secrets
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
-from uuid import UUID
-import logging
-
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, or_, func
+from sqlalchemy import select, update, delete, and_, func, or_
 from sqlalchemy.orm import selectinload
-
-from app.core.config import settings
-from app.utils.security import get_password_hash, verify_password
-from app.models.user import User
-from app.models.user_device import UserDevice
-from app.models.organization import Organization
-from app.models.audit import AuditLog
-from app.schemas.auth import RegisterRequest
-from app.services.email_service import EmailService
+from typing import Optional, List, Tuple
+from app.models import User, Organization, Role, UserRole, AuditLog
+from app.schemas import UserCreate, UserUpdate, UserRoleAssign
+from app.security import hash_password, PasswordValidator
+from fastapi import HTTPException, status
+import logging
+import json
 
 logger = logging.getLogger(__name__)
 
-class UserService:
-    """Comprehensive user management service with full async support."""
 
-    def __init__(self):
-        self.email_service = EmailService()
+class UserService:
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
 
     async def create_user(
         self,
-        db: AsyncSession,
-        user_create: RegisterRequest,
-        created_by: Optional[UUID] = None
+        user_data: UserCreate,
+        organization_id: str,
+        created_by_user_id: Optional[str] = None,
+        assign_default_role: bool = True
     ) -> User:
-        """
-        Create a new user with validation and audit logging.
+        """Create a new user in an organization"""
 
-        Args:
-            db: Database session
-            user_create: User creation data
-            created_by: ID of user creating this user
-
-        Returns:
-            User: Created user instance
-        """
-        logger.info(f"Creating user with email: {user_create.email}")
-
-        # Check if user already exists
-        existing_user = await self.get_user_by_email_or_username(
-            db, user_create.email, user_create.username
+        # Validate organization exists and is active
+        org_stmt = select(Organization).where(
+            and_(Organization.id == organization_id, Organization.is_active == True)
         )
-        if existing_user:
-            logger.warning(f"User creation failed - user already exists: {user_create.email}")
+        org_result = await self.db.execute(org_stmt)
+        organization = org_result.scalar_one_or_none()
+
+        if not organization:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User with this email or username already exists"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found or inactive"
             )
 
-        # Hash password
-        hashed_password = get_password_hash(user_create.password)
+        # Check if email already exists
+        email_stmt = select(User).where(User.email == user_data.email)
+        email_result = await self.db.execute(email_stmt)
+        if email_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User with this email already exists"
+            )
+
+        # Check username uniqueness within organization
+        username_stmt = select(User).where(
+            and_(
+                User.username == user_data.username,
+                User.organization_id == organization_id
+            )
+        )
+        username_result = await self.db.execute(username_stmt)
+        if username_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already exists in this organization"
+            )
+
+        # Check organization user limit
+        user_count_stmt = select(func.count()).where(
+            and_(User.organization_id == organization_id, User.is_active == True)
+        )
+        user_count_result = await self.db.execute(user_count_stmt)
+        active_users = user_count_result.scalar()
+
+        if active_users >= organization.max_users:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Organization has reached maximum user limit of {organization.max_users}"
+            )
+
+        # Validate password strength
+        is_valid, errors = PasswordValidator.validate(user_data.password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Password validation failed: {', '.join(errors)}"
+            )
 
         # Create user
         user = User(
-            email=user_create.email.lower(),
-            username=user_create.username.lower(),
-            hashed_password=hashed_password,
-            first_name=user_create.first_name,
-            last_name=user_create.last_name,
+            email=user_data.email,
+            username=user_data.username,
+            password_hash=hash_password(user_data.password),
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            organization_id=organization_id,
             is_active=True,
-            is_verified=False,  # Require email verification
-            organization_id=getattr(user_create, 'organization_id', None)
+            is_verified=False  # Require email verification
         )
 
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        self.db.add(user)
+        await self.db.flush()
 
-        logger.info(f"User created successfully: {user.id}")
-        return user
+        # Assign default role if requested
+        if assign_default_role:
+            await self._assign_default_role(user.id, organization_id)
 
-    async def get_user_by_id(self, db: AsyncSession, user_id: UUID) -> Optional[User]:
-        """Get user by ID with all relationships loaded."""
-        logger.debug(f"Fetching user by ID: {user_id}")
+        await self.db.commit()
+        await self.db.refresh(user)
 
-        result = await db.execute(
-            select(User)
-            .options(
-                selectinload(User.organization),
-                selectinload(User.roles),
-                selectinload(User.user_devices)
-            )
-            .where(User.id == user_id)
+        # Log user creation
+        await self._log_audit(
+            user_id=created_by_user_id,
+            organization_id=organization_id,
+            action="user_created",
+            resource="user",
+            resource_id=user.id,
+            status="success",
+            details=json.dumps({
+                "email": user.email,
+                "username": user.username,
+                "created_by": created_by_user_id,
+                "assign_default_role": assign_default_role
+            })
         )
-        user = result.scalar_one_or_none()
 
-        if user:
-            logger.debug(f"User found: {user.email}")
-        else:
-            logger.debug(f"User not found with ID: {user_id}")
-
+        logger.info(f"User created: {user.email} in organization {organization_id}")
         return user
 
-    async def get_user_by_email(self, db: AsyncSession, email: str) -> Optional[User]:
-        """Get user by email with all relationships loaded."""
-        logger.debug(f"Fetching user by email: {email}")
+    async def get_user_by_id(self, user_id: str, include_organization: bool = False) -> Optional[User]:
+        """Get user by ID"""
+        stmt = select(User)
 
-        result = await db.execute(
-            select(User)
-            .options(
-                selectinload(User.organization),
-                selectinload(User.roles),
-                selectinload(User.user_devices)
-            )
-            .where(User.email == email.lower())
-        )
-        user = result.scalar_one_or_none()
+        if include_organization:
+            stmt = stmt.options(selectinload(User.organization))
 
-        if user:
-            logger.debug(f"User found by email: {user.username}")
-        else:
-            logger.debug(f"User not found with email: {email}")
+        stmt = stmt.where(User.id == user_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
 
-        return user
+    async def get_user_by_email(self, email: str, organization_id: Optional[str] = None) -> Optional[User]:
+        """Get user by email, optionally within an organization"""
+        stmt = select(User).where(User.email == email)
 
-    async def get_user_by_username(self, db: AsyncSession, username: str) -> Optional[User]:
-        """Get user by username with all relationships loaded."""
-        logger.debug(f"Fetching user by username: {username}")
+        if organization_id:
+            stmt = stmt.where(User.organization_id == organization_id)
 
-        result = await db.execute(
-            select(User)
-            .options(
-                selectinload(User.organization),
-                selectinload(User.roles),
-                selectinload(User.user_devices)
-            )
-            .where(User.username == username.lower())
-        )
-        user = result.scalar_one_or_none()
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
 
-        if user:
-            logger.debug(f"User found by username: {user.email}")
-        else:
-            logger.debug(f"User not found with username: {username}")
-
-        return user
-
-    async def get_user_by_email_or_username(
+    async def list_organization_users(
         self,
-        db: AsyncSession,
-        email: str,
-        username: str
-    ) -> Optional[User]:
-        """Get user by email or username."""
-        logger.debug(f"Searching user by email: {email} or username: {username}")
+        organization_id: str,
+        page: int = 1,
+        size: int = 20,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        role_id: Optional[str] = None
+    ) -> Tuple[List[User], int]:
+        """List users in an organization with filtering"""
 
-        result = await db.execute(
-            select(User)
-            .options(
-                selectinload(User.organization),
-                selectinload(User.roles),
-                selectinload(User.user_devices)
-            )
-            .where(
+        # Build base query
+        stmt = select(User).where(User.organization_id == organization_id)
+
+        # Apply filters
+        if is_active is not None:
+            stmt = stmt.where(User.is_active == is_active)
+
+        if search:
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
                 or_(
-                    User.email == email.lower(),
-                    User.username == username.lower()
+                    User.email.ilike(search_pattern),
+                    User.username.ilike(search_pattern),
+                    User.first_name.ilike(search_pattern),
+                    User.last_name.ilike(search_pattern)
                 )
             )
-        )
-        return result.scalar_one_or_none()
+
+        if role_id:
+            stmt = stmt.join(UserRole).where(UserRole.role_id == role_id)
+
+        # Get total count
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar()
+
+        # Apply pagination
+        offset = (page - 1) * size
+        stmt = stmt.offset(offset).limit(size).order_by(User.created_at.desc())
+
+        result = await self.db.execute(stmt)
+        users = result.scalars().all()
+
+        return list(users), total
 
     async def update_user(
         self,
-        db: AsyncSession,
-        user_id: UUID,
-        user_update: Dict[str, Any],
-        updated_by: Optional[UUID] = None
-    ) -> Optional[User]:
-        """Update user with validation and audit logging."""
-        logger.info(f"Updating user: {user_id}")
+        user_id: str,
+        user_data: UserUpdate,
+        updated_by_user_id: Optional[str] = None,
+        organization_id: Optional[str] = None
+    ) -> User:
+        """Update user"""
 
         # Get existing user
-        user = await self.get_user_by_id(db, user_id)
+        user = await self.get_user_by_id(user_id)
         if not user:
-            logger.warning(f"User not found for update: {user_id}")
-            return None
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
 
-        # Update allowed fields
-        allowed_fields = {
-            'first_name', 'last_name', 'phone_number', 'bio',
-            'avatar_url', 'timezone', 'locale', 'is_active'
-        }
+        # If organization_id provided, ensure user belongs to it
+        if organization_id and user.organization_id != organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not belong to this organization"
+            )
 
-        for field, value in user_update.items():
-            if field in allowed_fields and hasattr(user, field):
-                setattr(user, field, value)
-                logger.debug(f"Updated {field} for user {user_id}")
+        # Track changes for audit log
+        changes = {}
 
-        user.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(user)
+        # Update fields
+        if user_data.username is not None and user_data.username != user.username:
+            # Check username uniqueness within organization
+            if user.organization_id:
+                username_stmt = select(User).where(
+                    and_(
+                        User.username == user_data.username,
+                        User.organization_id == user.organization_id,
+                        User.id != user_id
+                    )
+                )
+                username_result = await self.db.execute(username_stmt)
+                if username_result.scalar_one_or_none():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Username already exists in this organization"
+                    )
 
-        logger.info(f"User updated successfully: {user_id}")
+            changes["username"] = {"from": user.username, "to": user_data.username}
+            user.username = user_data.username
+
+        if user_data.first_name is not None and user_data.first_name != user.first_name:
+            changes["first_name"] = {"from": user.first_name, "to": user_data.first_name}
+            user.first_name = user_data.first_name
+
+        if user_data.last_name is not None and user_data.last_name != user.last_name:
+            changes["last_name"] = {"from": user.last_name, "to": user_data.last_name}
+            user.last_name = user_data.last_name
+
+        if user_data.is_active is not None and user_data.is_active != user.is_active:
+            changes["is_active"] = {"from": user.is_active, "to": user_data.is_active}
+            user.is_active = user_data.is_active
+
+        if user_data.is_verified is not None and user_data.is_verified != user.is_verified:
+            changes["is_verified"] = {"from": user.is_verified, "to": user_data.is_verified}
+            user.is_verified = user_data.is_verified
+
+        if changes:
+            await self.db.commit()
+            await self.db.refresh(user)
+
+            # Log user update
+            await self._log_audit(
+                user_id=updated_by_user_id,
+                organization_id=user.organization_id,
+                action="user_updated",
+                resource="user",
+                resource_id=user.id,
+                status="success",
+                details=json.dumps({
+                    "changes": changes,
+                    "updated_by": updated_by_user_id,
+                    "target_user": user.email
+                })
+            )
+
+            logger.info(f"User updated: {user.email}")
+
         return user
 
-    async def change_password(
+    async def delete_user(
         self,
-        db: AsyncSession,
-        user_id: UUID,
-        current_password: str,
-        new_password: str
+        user_id: str,
+        deleted_by_user_id: Optional[str] = None,
+        organization_id: Optional[str] = None
     ) -> bool:
-        """Change user password with validation."""
-        logger.info(f"Password change requested for user: {user_id}")
+        """Delete user (soft delete by marking as inactive)"""
 
-        user = await self.get_user_by_id(db, user_id)
+        user = await self.get_user_by_id(user_id)
         if not user:
-            logger.warning(f"User not found for password change: {user_id}")
-            return False
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
 
-        # Verify current password
-        if not verify_password(current_password, user.hashed_password):
-            logger.warning(f"Invalid current password for user: {user_id}")
-            return False
+        # If organization_id provided, ensure user belongs to it
+        if organization_id and user.organization_id != organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not belong to this organization"
+            )
+
+        # Prevent super admin deletion
+        if user.is_super_admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete super admin user"
+            )
+
+        # Soft delete - mark as inactive
+        user.is_active = False
+        await self.db.commit()
+
+        # Log user deletion
+        await self._log_audit(
+            user_id=deleted_by_user_id,
+            organization_id=user.organization_id,
+            action="user_deleted",
+            resource="user",
+            resource_id=user.id,
+            status="success",
+            details=json.dumps({
+                "email": user.email,
+                "username": user.username,
+                "deleted_by": deleted_by_user_id
+            })
+        )
+
+        logger.info(f"User deleted: {user.email}")
+        return True
+
+    async def assign_roles_to_user(
+        self,
+        user_id: str,
+        role_assignment: UserRoleAssign,
+        assigned_by_user_id: Optional[str] = None,
+        organization_id: Optional[str] = None
+    ) -> List[Role]:
+        """Assign roles to user"""
+
+        # Get user
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # If organization_id provided, ensure user belongs to it
+        if organization_id and user.organization_id != organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not belong to this organization"
+            )
+
+        # Get roles and validate they belong to the same organization
+        roles_stmt = select(Role).where(
+            and_(
+                Role.id.in_(role_assignment.role_ids),
+                Role.organization_id == user.organization_id,
+                Role.is_active == True
+            )
+        )
+        roles_result = await self.db.execute(roles_stmt)
+        roles = roles_result.scalars().all()
+
+        if len(roles) != len(role_assignment.role_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more roles not found or not accessible"
+            )
+
+        # Remove existing role assignments
+        delete_stmt = delete(UserRole).where(UserRole.user_id == user_id)
+        await self.db.execute(delete_stmt)
+
+        # Create new role assignments
+        for role in roles:
+            user_role = UserRole(user_id=user_id, role_id=role.id)
+            self.db.add(user_role)
+
+        await self.db.commit()
+
+        # Log role assignment
+        await self._log_audit(
+            user_id=assigned_by_user_id,
+            organization_id=user.organization_id,
+            action="user_roles_assigned",
+            resource="user",
+            resource_id=user.id,
+            status="success",
+            details=json.dumps({
+                "user_email": user.email,
+                "role_ids": role_assignment.role_ids,
+                "role_names": [role.name for role in roles],
+                "assigned_by": assigned_by_user_id
+            })
+        )
+
+        logger.info(f"Roles assigned to user {user.email}: {[role.name for role in roles]}")
+        return list(roles)
+
+    async def get_user_roles(self, user_id: str) -> List[Role]:
+        """Get all roles for a user"""
+
+        stmt = (
+            select(Role)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user_id)
+            .where(Role.is_active == True)
+        )
+
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def change_user_password(
+        self,
+        user_id: str,
+        new_password: str,
+        changed_by_user_id: Optional[str] = None
+    ) -> bool:
+        """Change user password (admin action)"""
+
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # Validate password strength
+        is_valid, errors = PasswordValidator.validate(new_password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Password validation failed: {', '.join(errors)}"
+            )
 
         # Update password
-        user.hashed_password = get_password_hash(new_password)
-        user.password_changed_at = datetime.utcnow()
-        await db.commit()
+        user.password_hash = hash_password(new_password)
+        user.failed_login_attempts = 0
+        user.locked_until = None
 
-        logger.info(f"Password changed successfully for user: {user_id}")
+        # Revoke all refresh tokens for security
+        from app.models import RefreshToken
+        revoke_stmt = update(RefreshToken).where(
+            RefreshToken.user_id == user_id
+        ).values(is_revoked=True)
+        await self.db.execute(revoke_stmt)
+
+        await self.db.commit()
+
+        # Log password change
+        await self._log_audit(
+            user_id=changed_by_user_id,
+            organization_id=user.organization_id,
+            action="user_password_changed",
+            resource="user",
+            resource_id=user.id,
+            status="success",
+            details=json.dumps({
+                "user_email": user.email,
+                "changed_by": changed_by_user_id
+            })
+        )
+
+        logger.info(f"Password changed for user: {user.email}")
         return True
 
-    async def verify_email(self, db: AsyncSession, verification_token: str) -> bool:
-        """Verify user email with token."""
-        logger.info(f"Email verification requested with token: {verification_token[:10]}...")
+    async def _assign_default_role(self, user_id: str, organization_id: str):
+        """Assign default Member role to new user"""
 
-        # In a real implementation, you'd verify the JWT token and extract user_id
-        # For now, we'll implement a basic version
-        try:
-            from app.core.security import verify_token
-            payload = verify_token(verification_token)
-            user_id = payload.get("user_id")
+        # Find Member role in organization
+        member_role_stmt = select(Role).where(
+            and_(
+                Role.name == "Member",
+                Role.organization_id == organization_id,
+                Role.is_active == True
+            )
+        )
+        member_role_result = await self.db.execute(member_role_stmt)
+        member_role = member_role_result.scalar_one_or_none()
 
-            if not user_id:
-                logger.warning("Invalid verification token - no user_id")
-                return False
+        if member_role:
+            user_role = UserRole(user_id=user_id, role_id=member_role.id)
+            self.db.add(user_role)
 
-            user = await self.get_user_by_id(db, UUID(user_id))
-            if not user:
-                logger.warning(f"User not found for verification: {user_id}")
-                return False
+    async def _log_audit(
+        self,
+        action: str,
+        resource: str,
+        status: str,
+        user_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        details: Optional[str] = None
+    ):
+        """Create audit log entry"""
 
-            user.is_verified = True
-            user.email_verified_at = datetime.utcnow()
-            await db.commit()
+        audit_log = AuditLog(
+            user_id=user_id,
+            organization_id=organization_id,
+            action=action,
+            resource=resource,
+            resource_id=resource_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            details=details,
+            status=status
+        )
 
-            logger.info(f"Email verified successfully for user: {user_id}")
+        self.db.add(audit_log)
+
+    async def list_users_with_access_control(
+        self,
+        page: int = 1,
+        size: int = 20,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        user_org_id: Optional[str] = None,
+        is_super_admin: bool = False,
+        is_org_admin: bool = False
+    ) -> Tuple[List[User], int]:
+        """List users with access control"""
+
+        # Super admin can see all users across organizations
+        if is_super_admin:
+            stmt = select(User).options(selectinload(User.organization))
+
+            # Apply filters
+            if organization_id:
+                stmt = stmt.where(User.organization_id == organization_id)
+            if is_active is not None:
+                stmt = stmt.where(User.is_active == is_active)
+            if search:
+                search_pattern = f"%{search}%"
+                stmt = stmt.where(
+                    or_(
+                        User.email.ilike(search_pattern),
+                        User.username.ilike(search_pattern),
+                        User.first_name.ilike(search_pattern),
+                        User.last_name.ilike(search_pattern)
+                    )
+                )
+
+            # Get total count
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            count_result = await self.db.execute(count_stmt)
+            total = count_result.scalar()
+
+            # Apply pagination
+            offset = (page - 1) * size
+            stmt = stmt.offset(offset).limit(size).order_by(User.created_at.desc())
+
+            result = await self.db.execute(stmt)
+            users = result.scalars().all()
+
+            return list(users), total
+
+        # Organization admins and users can only see users in their organization
+        elif (is_org_admin or user_org_id) and user_org_id:
+            return await self.list_organization_users(
+                organization_id=user_org_id,
+                page=page,
+                size=size,
+                is_active=is_active,
+                search=search
+            )
+
+        # No access
+        else:
+            return [], 0
+
+    async def get_user_with_access_control(
+        self,
+        user_id: str,
+        user_org_id: Optional[str] = None,
+        is_super_admin: bool = False,
+        is_org_admin: bool = False
+    ) -> Optional[User]:
+        """Get user with access control"""
+
+        user = await self.get_user_by_id(user_id, include_organization=True)
+        if not user:
+            return None
+
+        # Super admin can access any user
+        if is_super_admin:
+            return user
+
+        # Organization admins and users can only access users in their organization
+        if (is_org_admin or user_org_id) and user.organization_id == user_org_id:
+            return user
+
+        # No access
+        return None
+
+    async def can_user_manage_user(
+        self,
+        target_user_id: str,
+        manager_user_id: str,
+        manager_org_id: Optional[str] = None,
+        is_super_admin: bool = False,
+        is_org_admin: bool = False
+    ) -> bool:
+        """Check if a user can manage another user"""
+
+        # Super admin can manage any user
+        if is_super_admin:
             return True
 
-        except Exception as e:
-            logger.error(f"Email verification failed: {e}")
+        # Get target user
+        target_user = await self.get_user_by_id(target_user_id)
+        if not target_user:
             return False
 
-    async def deactivate_user(self, db: AsyncSession, user_id: UUID) -> bool:
-        """Deactivate user account."""
-        logger.info(f"Deactivating user: {user_id}")
+        # Organization admins can manage users in their organization
+        if is_org_admin and manager_org_id and target_user.organization_id == manager_org_id:
+            return True
+        
+        # Regular organization users cannot manage other users
+        return False
 
-        user = await self.get_user_by_id(db, user_id)
-        if not user:
-            logger.warning(f"User not found for deactivation: {user_id}")
-            return False
-
-        user.is_active = False
-        await db.commit()
-
-        logger.info(f"User deactivated successfully: {user_id}")
-        return True
-
-    async def activate_user(self, db: AsyncSession, user_id: UUID) -> bool:
-        """Activate user account."""
-        logger.info(f"Activating user: {user_id}")
-
-        user = await self.get_user_by_id(db, user_id)
-        if not user:
-            logger.warning(f"User not found for activation: {user_id}")
-            return False
-
-        user.is_active = True
-        await db.commit()
-
-        logger.info(f"User activated successfully: {user_id}")
-        return True
-
-    async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
-        """Soft delete user account."""
-        logger.info(f"Deleting user: {user_id}")
-
-        user = await self.get_user_by_id(db, user_id)
-        if not user:
-            logger.warning(f"User not found for deletion: {user_id}")
-            return False
-
-        # Soft delete by deactivating
-        user.is_active = False
-        user.updated_at = datetime.utcnow()
-        await db.commit()
-
-        logger.info(f"User deleted successfully: {user_id}")
-        return True
-
-    async def get_user_devices(
-        self,
-        db: AsyncSession,
-        user_id: UUID
-    ) -> List[UserDevice]:
-        """Get all devices for a user."""
-        logger.debug(f"Fetching devices for user: {user_id}")
-
-        result = await db.execute(
-            select(UserDevice)
-            .where(UserDevice.user_id == user_id)
-            .order_by(UserDevice.last_seen.desc())
-        )
-        devices = result.scalars().all()
-
-        logger.debug(f"Found {len(devices)} devices for user: {user_id}")
-        return list(devices)
-
-    async def revoke_user_device(
-        self,
-        db: AsyncSession,
-        user_id: UUID,
-        device_id: UUID
-    ) -> bool:
-        """Revoke/remove a user device."""
-        logger.info(f"Revoking device {device_id} for user {user_id}")
-
-        result = await db.execute(
-            delete(UserDevice)
-            .where(
-                and_(
-                    UserDevice.user_id == user_id,
-                    UserDevice.id == device_id
-                )
-            )
-        )
-        await db.commit()
-
-        success = result.rowcount > 0
-        if success:
-            logger.info(f"Device revoked successfully: {device_id}")
-        else:
-            logger.warning(f"Device not found for revocation: {device_id}")
-
-        return success
-
-    async def list_users(
-        self,
-        db: AsyncSession,
-        skip: int = 0,
-        limit: int = 100,
-        search: Optional[str] = None,
-        organization_id: Optional[UUID] = None
-    ) -> Tuple[List[User], int]:
-        """List users with pagination and filtering."""
-        logger.debug(f"Listing users - skip: {skip}, limit: {limit}, search: {search}")
-
-        query = select(User).options(
-            selectinload(User.organization),
-            selectinload(User.roles)
-        )
-
-        # Apply filters
-        if search:
-            search_term = f"%{search}%"
-            query = query.where(
-                or_(
-                    User.first_name.ilike(search_term),
-                    User.last_name.ilike(search_term),
-                    User.email.ilike(search_term),
-                    User.username.ilike(search_term)
-                )
-            )
-
-        if organization_id:
-            query = query.where(User.organization_id == organization_id)
-
-        # Get total count
-        count_query = select(func.count(User.id))
-        if search:
-            count_query = count_query.where(
-                or_(
-                    User.first_name.ilike(search_term),
-                    User.last_name.ilike(search_term),
-                    User.email.ilike(search_term),
-                    User.username.ilike(search_term)
-                )
-            )
-        if organization_id:
-            count_query = count_query.where(User.organization_id == organization_id)
-
-        count_result = await db.execute(count_query)
-        total = count_result.scalar()
-
-        # Get paginated results
-        query = query.offset(skip).limit(limit).order_by(User.created_at.desc())
-        result = await db.execute(query)
-        users = result.scalars().all()
-
-        logger.debug(f"Found {len(users)} users out of {total} total")
-        return list(users), total
-
-# Create singleton instance
-user_service = UserService()
